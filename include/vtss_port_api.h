@@ -86,7 +86,8 @@ typedef struct
     u32                    bit;    /**< SGPIO bit (0-3) */
 } vtss_port_sgpio_map_t;
 
-#define CHIP_PORT_UNUSED -1 /**< Signifies an unused chip port */
+ /** Signifies an unused chip port */
+#define CHIP_PORT_UNUSED -1
 
 /** \brief Port map structure */
 typedef struct
@@ -220,7 +221,7 @@ typedef struct
     BOOL       obey;            /**< TRUE if 802.3x PAUSE frames should be obeyed */
     BOOL       generate;        /**< TRUE if 802.3x PAUSE frames should generated */
     vtss_mac_t smac;            /**< Port MAC address used as SMAC in PAUSE frames */
-#if defined(VTSS_FEATURE_QOS)
+#if defined(VTSS_FEATURE_PFC)
     BOOL       pfc[VTSS_PRIOS]; /**< TRUE if 802.1Qbb Priority Flow Control should be generated and obeyed.
                                      Cannot be enabled together with 802.3x Flowcontrol */
 #endif
@@ -502,6 +503,36 @@ vtss_rc vtss_port_ifh_conf_get(const vtss_inst_t     inst,
 #endif /* VTSS_FEATURE_PORT_IFH) */
 
 /**
+ * \brief Read value from MIIM register.
+ *
+ * \param inst    [IN]  Target instance reference.
+ * \param port_no [IN]  Port number.
+ * \param addr    [IN]  PHY register address.
+ * \param value   [OUT] PHY register value.
+ *
+ * \return Return code.
+ **/
+vtss_rc vtss_port_miim_read(const vtss_inst_t    inst,
+                            const vtss_port_no_t port_no,
+                            const u8             addr,
+                            u16                  *const value);
+
+/**
+ * \brief Write value to MIIM register.
+ *
+ * \param inst    [IN]  Target instance reference.
+ * \param port_no [IN]  Port number.
+ * \param addr    [IN]  PHY register address.
+ * \param value   [IN]  PHY register value.
+ *
+ * \return Return code.
+ **/
+vtss_rc vtss_port_miim_write(const vtss_inst_t    inst,
+                             const vtss_port_no_t port_no,
+                             const u8             addr,
+                             const u16            value);
+
+/**
  * \brief Direct MIIM read (bypassing port map)
  *
  * \param inst            [IN]  Target instance reference.
@@ -678,6 +709,9 @@ typedef struct {
     u16  lp_bp0;              /**< (debug) LP Base page 0-15           */
     u16  lp_bp1;              /**< (debug) LP Base page 16-31          */
     u16  lp_bp2;              /**< (debug) LP Base page 32-47          */
+    u16  lp_np0;              /**< (debug) LP Base page 0-15           */
+    u16  lp_np1;              /**< (debug) LP Base page 16-31          */
+    u16  lp_np2;              /**< (debug) LP Base page 32-47          */
 } vtss_port_kr_status_aneg_t;
 
 /** \brief  KR Training status */
@@ -717,12 +751,14 @@ typedef struct {
     BOOL r_fec_req;        /**< Request R-FEC          */
     BOOL rs_fec_req;       /**< Request RS-FEC         */
     BOOL next_page;        /**< Use next page when adv.*/
+    BOOL no_pd;            /**< Do not enable parallel detect */
 } vtss_port_kr_aneg_t;
 
 /** \brief  KR Training config */
 typedef struct {
     BOOL enable;            /**< Enable KR training, BER method used */
     BOOL no_remote;         /**< Do not train remote, only local */
+    BOOL no_eq_apply;       /**< Do not apply TxEq settings to HW (debug only) */
     BOOL use_ber_cnt;       /**< Use BER count instead of eye height */
     BOOL test_mode;         /**< Debug only */
     u32  test_repeat;       /**< Debug only */
@@ -810,6 +846,12 @@ vtss_rc vtss_port_kr_status_get(const vtss_inst_t inst,
 
 #endif // #if defined(VTSS_FEATURE_PORT_KR) || defined(VTSS_FEATURE_PORT_KR_IRQ)
 
+typedef struct {
+    u32 vga;
+    u32 edc;
+    u32 eqr;
+} vtss_port_ctle_t;
+
 #if defined(VTSS_FEATURE_PORT_KR_IRQ)
 
 /** \brief States of the training state machine */
@@ -845,12 +887,6 @@ typedef struct {
     u16 coef;
     u16 status;
 } vtss_kr_status_results_t;
-
-typedef struct {
-    u32 vga;
-    u32 edc;
-    u32 eqr;
-} vtss_port_ctle_t;
 
 /** \brief  KR state machine structures (for status/debug) */
 typedef struct {

@@ -41,6 +41,8 @@ extern "C" {
 #define VTSS_HW_TIME_CNT_PR_SEC 1000000000
 /** \brief Number of nanoseconds pr clock count. */
 #define VTSS_HW_TIME_NSEC_PR_CNT 1
+#define VTSS_HW_TIME_WRAP_LIMIT  0       /* time counter wrap around limit+1 */
+#define VTSS_HW_TIME_MIN_ADJ_RATE  10       /* 1 ppb */
 #endif
 
 #if defined (VTSS_ARCH_JAGUAR_2) || defined(VTSS_ARCH_SPARX5)
@@ -80,10 +82,15 @@ extern "C" {
 #define VTSS_TS_IO_ARRAY_SIZE       7
 /** \brief Number of separate clock domains in LAN966X */
 #define VTSS_TS_DOMAIN_ARRAY_SIZE   3
+#elif defined(VTSS_ARCH_OCELOT)
+/** \brief Number of Ocelot PTP pins that can be used as 1 PPS or clock output/input. */
+#define VTSS_TS_IO_ARRAY_SIZE       4
+/** \brief Number of separate clock domains in Ocelot */
+#define VTSS_TS_DOMAIN_ARRAY_SIZE   1
 #else
 /** \brief Number of L26 or Serval PTP pins, that can be used as 1PPS or clock output/input. */
 #define VTSS_TS_IO_ARRAY_SIZE       1
-/** \brief Number of separate clock domains in L26 and Serval */
+/** \brief Number of separate clock domains in L26 */
 #define VTSS_TS_DOMAIN_ARRAY_SIZE   1
 #endif
 
@@ -518,7 +525,7 @@ vtss_rc vtss_ts_external_clock_mode_get(const vtss_inst_t           inst,
 vtss_rc vtss_ts_external_clock_mode_set(const vtss_inst_t              inst,
                                         const vtss_ts_ext_clock_mode_t *const ext_clock_mode);
 
-#if defined(VTSS_ARCH_JAGUAR_2) || defined(VTSS_ARCH_SPARX5) || defined(VTSS_ARCH_LAN966X)
+#if defined(VTSS_ARCH_JAGUAR_2) || defined(VTSS_ARCH_SPARX5) || defined(VTSS_ARCH_LAN966X) || defined(VTSS_ARCH_LUTON26) || defined(VTSS_ARCH_OCELOT)
 /**
  * \brief parameter for setting the external io mode.
  * Architecture:
@@ -602,7 +609,7 @@ vtss_rc vtss_ts_saved_timeofday_get(const vtss_inst_t               inst,
  * \return Return code.
  */
 vtss_rc vtss_ts_output_clock_edge_offset_get(const vtss_inst_t inst,
-                                             const uint32_t    io,
+                                             const u32         io,
                                              u32               *const offset);
 #endif
 
@@ -907,7 +914,7 @@ typedef void (*vtss_ts_timestamp_alloc_cb_t)(void *context, u32 port_no,
 /** \brief Timestamp allocation */
 typedef struct vtss_ts_timestamp_alloc_t {
     /** Identify the ports that a timestamp id is allocated to */
-    u64 port_mask;
+    uint64_t port_mask;
 
     /** Application specific context used as parameter in the call-out */
     void * context;
@@ -1016,8 +1023,8 @@ vtss_rc vtss_ts_smac_get(const vtss_inst_t    inst,
  * \return Return code.
  */
 vtss_rc vtss_ts_seq_cnt_get(const vtss_inst_t                inst,
-                            const uint32_t                   sec_cntr,
-                            uint16_t *const                  cnt_val);
+                            const u32                        sec_cntr,
+                            u16 *const                       cnt_val);
 
 #ifdef __cplusplus
 }

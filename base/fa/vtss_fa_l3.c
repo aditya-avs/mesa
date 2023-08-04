@@ -120,7 +120,7 @@ static vtss_rc fa_l3_rleg_stat_reset(vtss_state_t *vtss_state)
 {
     u32 i, j;
 
-    for (i = 0; i < (2 * VTSS_RLEG_CNT); i++) {
+    for (i = 0; i < (2 * VTSS_RLEG_STAT_CNT); i++) {
         for (j = 0; j < 2; j++) {
             REG_WR(VTSS_ANA_AC_STAT_CNT_CFG_IRLEG_STAT_MSB_CNT(i, j), 0);
             REG_WR(VTSS_ANA_AC_STAT_CNT_CFG_IRLEG_STAT_LSB_CNT(i, j), 0);
@@ -219,8 +219,8 @@ static vtss_rc fa_l3_mc_rt_add(vtss_state_t *vtss_state, vtss_l3_mc_rt_t *rt)
     u32               i, sum = 0;
     u8                sip_mask;
 
-    memset(&data, 0, sizeof(data));
-    memset(&entry, 0, sizeof(entry));
+    VTSS_MEMSET(&data, 0, sizeof(data));
+    VTSS_MEMSET(&entry, 0, sizeof(entry));
     data.u.lpm.entry = &entry;
 
     VTSS_RC(fa_l3_mc_rt_rleg_add(vtss_state, rt));
@@ -270,8 +270,8 @@ static vtss_rc fa_l3_rt_add(vtss_state_t *vtss_state,
     vtss_ip_addr_t    *addr = &net->network;
     u32               i, j, n, mask = 0, len = net->prefix_size;
 
-    memset(&data, 0, sizeof(data));
-    memset(&entry, 0, sizeof(entry));
+    VTSS_MEMSET(&data, 0, sizeof(data));
+    VTSS_MEMSET(&entry, 0, sizeof(entry));
     data.u.lpm.entry = &entry;
 
     if (addr->type == VTSS_IP_TYPE_IPV4) {
@@ -385,6 +385,11 @@ vtss_rc vtss_fa_l3_debug_print(vtss_state_t *vtss_state,
         return VTSS_RC_OK;
     }
 
+    vtss_fa_debug_reg_header(pr, "ANA_L3");
+    vtss_fa_debug_reg(vtss_state, pr, VTSS_ANA_L3_ROUTING_CFG, "ROUTING_CFG");
+    vtss_fa_debug_reg(vtss_state, pr, VTSS_ANA_L3_ROUTING_CFG2, "ROUTING_CFG2");
+    pr("\n");
+
     REG_RD(VTSS_ANA_L3_RLEG_CFG_0, &cfg0);
     REG_RD(VTSS_ANA_L3_RLEG_CFG_1, &cfg1);
     pr("Router MAC: %06x-%06x (Type %u)\n\n",
@@ -392,8 +397,8 @@ vtss_rc vtss_fa_l3_debug_print(vtss_state_t *vtss_state,
        VTSS_X_ANA_L3_RLEG_CFG_0_RLEG_MAC_LSB(cfg0),
        VTSS_X_ANA_L3_RLEG_CFG_1_RLEG_MAC_TYPE_SEL(cfg1));
 
-    for (i = 0; i < VTSS_RLEG_CNT; i++) {
-        if (vtss_state->l3.rleg_conf[i].vlan == 0 && !info->full) {
+    for (i = 0; i < VTSS_RLEG_STAT_CNT; i++) {
+        if (i < VTSS_RLEG_CNT && vtss_state->l3.rleg_conf[i].vlan == 0 && !info->full) {
             continue;
         }
 
@@ -404,11 +409,11 @@ vtss_rc vtss_fa_l3_debug_print(vtss_state_t *vtss_state,
         REG_RD(VTSS_ANA_L3_RLEG_CTRL(i), &value);
         REG_RD(VTSS_ANA_L3_VRRP_CFG(i, 0), &cfg0);
         REG_RD(VTSS_ANA_L3_VRRP_CFG(i, 1), &cfg1);
-        sprintf(buf0, "%u (%u/%u)",
+        VTSS_SPRINTF(buf0, "%u (%u/%u)",
                 VTSS_X_ANA_L3_RLEG_CTRL_RLEG_IP4_VRID_ENA(value),
                 VTSS_X_ANA_L3_VRRP_CFG_RLEG_IP4_VRID(cfg0),
                 VTSS_X_ANA_L3_VRRP_CFG_RLEG_IP4_VRID(cfg1));
-        sprintf(buf1, "%u (%u/%u)",
+        VTSS_SPRINTF(buf1, "%u (%u/%u)",
                 VTSS_X_ANA_L3_RLEG_CTRL_RLEG_IP6_VRID_ENA(value),
                 VTSS_X_ANA_L3_VRRP_CFG_RLEG_IP6_VRID(cfg0),
                 VTSS_X_ANA_L3_VRRP_CFG_RLEG_IP6_VRID(cfg1));
@@ -434,7 +439,7 @@ vtss_rc vtss_fa_l3_debug_print(vtss_state_t *vtss_state,
     }
 
     for (vid = VTSS_VID_NULL; vid < VTSS_VIDS; vid++) {
-        if (!vtss_state->l2.vlan_table[vid].enabled && !info->full) {
+        if (!(vtss_state->l2.vlan_table[vid].flags & VLAN_FLAGS_ENABLED) && !info->full) {
             continue;
         }
 
@@ -478,8 +483,8 @@ vtss_rc vtss_fa_l3_debug_print(vtss_state_t *vtss_state,
         pr("\n");
     }
 
-    for (i = 0; i < VTSS_RLEG_CNT; i++) {
-        if ((vtss_state->l3.rleg_conf[i].vlan == 0 && !info->full) ||
+    for (i = 0; i < VTSS_RLEG_STAT_CNT; i++) {
+        if ((i < VTSS_RLEG_CNT && vtss_state->l3.rleg_conf[i].vlan == 0 && !info->full) ||
             fa_l3_rleg_hw_stat_poll(vtss_state, i) != VTSS_RC_OK) {
             continue;
         }
@@ -536,13 +541,18 @@ static vtss_rc fa_l3_init_counter(vtss_state_t *vtss_state, u32 idx, u32 cnt_byt
 
 static vtss_rc fa_l3_init(vtss_state_t *vtss_state)
 {
+    u32 mask;
+
     VTSS_RC(fa_l3_init_counter(vtss_state, FA_L3_CNT_IP_UC_PACKETS, 0, 3, 1));
     VTSS_RC(fa_l3_init_counter(vtss_state, FA_L3_CNT_IP_UC_BYTES,   1, 3, 1));
     VTSS_RC(fa_l3_init_counter(vtss_state, FA_L3_CNT_IP_MC_PACKETS, 0, 4, 2));
     VTSS_RC(fa_l3_init_counter(vtss_state, FA_L3_CNT_IP_MC_BYTES,   1, 4, 2));
 
-    REG_WRM_SET(VTSS_ANA_L3_ROUTING_CFG,
-                VTSS_M_ANA_L3_ROUTING_CFG_RT_SMAC_UPDATE_ENA);
+    mask = (VTSS_M_ANA_L3_ROUTING_CFG_RT_SMAC_UPDATE_ENA |
+            VTSS_M_ANA_L3_ROUTING_CFG_CPU_RLEG_IP_HDR_FAIL_REDIR_ENA |
+            VTSS_M_ANA_L3_ROUTING_CFG_CPU_IP6_HOPBYHOP_REDIR_ENA |
+            VTSS_M_ANA_L3_ROUTING_CFG_CPU_IP4_OPTIONS_REDIR_ENA);
+    REG_WRM(VTSS_ANA_L3_ROUTING_CFG, mask, mask);
     REG_WRM(VTSS_ANA_ACL_VCAP_S2_MISC_CTRL,
             VTSS_F_ANA_ACL_VCAP_S2_MISC_CTRL_ACL_RT_SEL(1),
             VTSS_M_ANA_ACL_VCAP_S2_MISC_CTRL_ACL_RT_SEL);
@@ -556,7 +566,7 @@ static vtss_rc fa_l3_poll(vtss_state_t *vtss_state)
        The worst case is a 40-bit byte counter, which would wrap in about 900 seconds at 10 Gbps */
     VTSS_RC(fa_l3_rleg_hw_stat_poll(vtss_state, vtss_state->l3.statistics.rleg));
     vtss_state->l3.statistics.rleg++;
-    if (vtss_state->l3.statistics.rleg >= VTSS_RLEG_CNT) {
+    if (vtss_state->l3.statistics.rleg >= VTSS_RLEG_STAT_CNT) {
         vtss_state->l3.statistics.rleg = 0;
     }
     return VTSS_RC_OK;

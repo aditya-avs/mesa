@@ -14,6 +14,11 @@
 /* ================================================================= *
  *  Features
  * ================================================================= */
+/**< Lightweight option for minimal feature set */
+#if !defined(VTSS_OPT_LIGHT)
+#define VTSS_OPT_LIGHT 0
+#endif
+
 #if defined(VTSS_CHIP_966X)
 #define VTSS_ARCH_LAN966X                         /**< LAN966X architecture */
 #if defined(VTSS_OPT_FPGA)
@@ -23,20 +28,19 @@
 
 #if defined(VTSS_ARCH_LAN966X)
 #define VTSS_FEATURE_PORT_MUX                     /**< Port mux between serdes blocks and ports */
-#define VTSS_FEATURE_STORM_POLICER_DROP_COUNTER   /**< Storm policers has drop counters */
-#define VTSS_FEATURE_WARM_START                   /**< Warm start */
 #define VTSS_FEATURE_MISC                         /**< Miscellaneous */
 #define VTSS_FEATURE_PORT_CONTROL                 /**< Port control */
 #define VTSS_FEATURE_PORT_IFH                     /**< Port IFH control */
 #define VTSS_FEATURE_PORT_CNT_BRIDGE              /**< Bridge counters */
 #define VTSS_FEATURE_PFC                          /**< 802.1Qbb Priority Flow Control */
+#define VTSS_FEATURE_LAYER2                       /**< Layer 2 (switching) */
+#define VTSS_FEATURE_MAC_INDEX_TABLE              /**< Index-based MAC address table */
+#define VTSS_FEATURE_PACKET                       /**< CPU Rx/Tx frame configuration */
+#define VTSS_FEATURE_PACKET_INJ_ENCAP             /**< Packet Tx supports injection with specific encapsulation */
+#define VTSS_FEATURE_PACKET_PORT_REG_DISCARD      /**< Packet discard registration per port */
+//#define VTSS_FEATURE_PACKET_PORT_L2CP_REG         /**< Packet registration per port and L2CP */
+#define VTSS_FEATURE_SERIAL_GPIO                  /**< Serial GPIO control */
 #define VTSS_FEATURE_QOS                          /**< QoS */
-#define VTSS_FEATURE_QCL                          /**< QoS: QoS Control Lists */
-#define VTSS_FEATURE_QCL_DMAC_DIP                 /**< QoS: QoS Control Lists, match on either SMAC/SIP or DMAC/DIP */
-#define VTSS_FEATURE_QCL_KEY_TYPE                 /**< QoS: QoS Control Lists, different key types per port */
-#define VTSS_FEATURE_QCL_KEY_INNER_TAG            /**< QoS: QoS Control Lists has inner tag */
-#define VTSS_FEATURE_QCL_KEY_DMAC                 /**< QoS: QoS Control Lists has destination MAC address */
-#define VTSS_FEATURE_QCL_KEY_DIP                  /**< QoS: QoS Control Lists has destination IP address */
 #define VTSS_FEATURE_QOS_SCHEDULER_DWRR_CNT       /**< QoS: Scheduler supports variable number of DWRR inputs */
 #define VTSS_FEATURE_QOS_EGRESS_QUEUE_SHAPERS_EB  /**< QoS: Egress Queue Shapers has Excess Bandwidth support */
 #define VTSS_FEATURE_QOS_EGRESS_QUEUE_SHAPERS_CRB /**< QoS: Egress Queue Shapers has CRedit Based shaper support */
@@ -44,18 +48,26 @@
 #define VTSS_FEATURE_QOS_EGRESS_SHAPERS_RT        /**< Qos: Egress shapers have rate type support - line or date rate */
 #define VTSS_FEATURE_QOS_DSCP_REMARK_DP_AWARE     /**< QoS: DSCP remarking is DP aware */
 #define VTSS_FEATURE_QOS_WRED_V2                  /**< QoS: WRED global - per queue (0..7), per dpl (0..1) */
-#define VTSS_FEATURE_QOS_POLICER_DLB              /**< DLB policers */
 #define VTSS_FEATURE_QOS_CPU_QUEUE_SHAPER         /**< QoS: Has CPU queue shaper */
 #define VTSS_FEATURE_QOS_CPU_PORT_SHAPER          /**< QoS: Has CPU port shaper */
 #define VTSS_FEATURE_QOS_EGRESS_QUEUE_CUT_THROUGH /**< QoS: Queue has cut-through support */
+#define VTSS_FEATURE_QOS_FRAME_PREEMPTION         /**< QoS: Frame Preemption support (802.1Qbu and 802.3br) */
+#define VTSS_FEATURE_TIMESTAMP                    /**< Packet timestamp feature (for PTP) */
+#define VTSS_FEATURE_TIMESTAMP_LATENCY_COMP       /**< Ingress and egress latency compensation hardwarce support */
+#define VTSS_FEATURE_TIMESTAMP_ORG_TIME           /**< OriginTimestamp update hardware support */
+#define VTSS_FEATURE_TIMESTAMP_P2P_DELAY_COMP     /**< Peer-to-peer path delay compensation hardware support */
+#define VTSS_FEATURE_TIMESTAMP_ASYMMETRY_COMP     /**< Path delay asymmetry compensation hardware support */
+#if !VTSS_OPT_LIGHT
+#define VTSS_FEATURE_QCL                          /**< QoS: QoS Control Lists */
+#define VTSS_FEATURE_QCL_DMAC_DIP                 /**< QoS: QoS Control Lists, match on either SMAC/SIP or DMAC/DIP */
+#define VTSS_FEATURE_QCL_KEY_TYPE                 /**< QoS: QoS Control Lists, different key types per port */
+#define VTSS_FEATURE_QCL_KEY_INNER_TAG            /**< QoS: QoS Control Lists has inner tag */
+#define VTSS_FEATURE_QCL_KEY_DMAC                 /**< QoS: QoS Control Lists has destination MAC address */
+#define VTSS_FEATURE_QCL_KEY_DIP                  /**< QoS: QoS Control Lists has destination IP address */
+#define VTSS_FEATURE_QOS_POLICER_DLB              /**< DLB policers */
 #define VTSS_FEATURE_QOS_TAS                      /**< QoS: Time Aware Scheduling (802.1Qbv) */
 #define VTSS_FEATURE_QOS_TAS_LIST_LINKED          /**< QoS: Time Aware Scheduling list elements are linked */
-#define VTSS_FEATURE_QOS_FRAME_PREEMPTION         /**< QoS: Frame Preemption support (802.1Qbu and 802.3br) */
-#define VTSS_FEATURE_PACKET                       /**< CPU Rx/Tx frame configuration */
-#define VTSS_FEATURE_PACKET_PORT_REG_DISCARD      /**< Packet discard registration per port */
-//#define VTSS_FEATURE_PACKET_PORT_L2CP_REG         /**< Packet registration per port and L2CP */
-#define VTSS_FEATURE_LAYER2                       /**< Layer 2 (switching) */
-#define VTSS_FEATURE_MAC_INDEX_TABLE              /**< Index-based MAC address table */
+#define VTSS_FEATURE_STORM_POLICER_DROP_COUNTER   /**< Storm policers has drop counters */
 #define VTSS_FEATURE_VLAN_SVL                     /**< Shared VLAN Learning */
 #define VTSS_FEATURE_PVLAN                        /**< Private VLANs */
 #define VTSS_FEATURE_VCL_KEY_DMAC                 /**< VCL entry has destination MAC address */
@@ -81,20 +93,15 @@
 #if !defined(VTSS_OPT_FPGA)
 #define VTSS_FEATURE_SYNCE                        /**< SYNCE - L1 syncronization feature */
 #endif
-#define VTSS_FEATURE_SERIAL_GPIO                  /**< Serial GPIO control */
 #define VTSS_FEATURE_FAN                          /**< Fan control */
-#define VTSS_FEATURE_PTP_RS422                    /**< Support for the RS422 serial/1PPS interface */
-#define VTSS_FEATURE_TIMESTAMP                    /**< Packet timestamp feature (for PTP) */
-#define VTSS_FEATURE_TIMESTAMP_LATENCY_COMP       /**< Ingress and egress latency compensation hardwarce support */
-#define VTSS_FEATURE_TIMESTAMP_ORG_TIME           /**< OriginTimestamp update hardware support */
-#define VTSS_FEATURE_TIMESTAMP_P2P_DELAY_COMP     /**< Peer-to-peer path delay compensation hardware support */
-#define VTSS_FEATURE_TIMESTAMP_ASYMMETRY_COMP     /**< Path delay asymmetry compensation hardware support */
 #define VTSS_FEATURE_VOP                          /**< Y.1731/IEEE802.1ag OAM */
 #define VTSS_FEATURE_MRP                          /**< IEC 62439-2 MRP */
 #define VTSS_FEATURE_AFI_SWC                      /**< Switch-core-based Automatic Frame Injection */
 #define VTSS_AFI_V2                               /**< AFI API version 2 */
 #define VTSS_FEATURE_RCL                          /**< Real-time Control List */
-#define VTSS_FEATURE_VOP_V1                    /**< Version 1 OAM implementation. Serval-1 platform */
+#define VTSS_FEATURE_VOP_V0                       /**< Version 0 OAM implementation. VOP is inheritet from Serval-1 (version 1) platform but not compleately */
+#define VTSS_FEATURE_VOP_TAGGING                  /**< VOE can handle different tagging by configuration of the VOE residence port */
+#endif // !VTSS_OPT_LIGHT
 #endif /* VTSS_ARCH_LAN966X */
 
 #if defined(VTSS_CHIP_7546) || defined(VTSS_CHIP_7549) || defined(VTSS_CHIP_7552) || \
@@ -112,7 +119,6 @@
 // FA-FIXME: This set must be revised
 #define VTSS_FEATURE_10G                          /**< 10G ports */
 #define VTSS_FEATURE_PORT_KR_IRQ                  /**< 10G/25GBase KR, 802.3ap clause 72 (training) and clause 73 (aneg). IRQ controlled */
-// //#define VTSS_FEATURE_WARM_START              /**< Warm start */
 #define VTSS_FEATURE_MISC                         /**< Miscellaneous */
 #define VTSS_FEATURE_SERIAL_GPIO                  /**< Serial GPIO control */
 #define VTSS_FEATURE_PORT_CONTROL                 /**< Port control */
@@ -136,11 +142,13 @@
 #define VTSS_FEATURE_QOS_SCHEDULER_DWRR_CNT       /**< QoS: Scheduler supports variable number of DWRR inputs */
 #define VTSS_FEATURE_QOS_COSID_CLASSIFICATION     /**< QoS: Has COSID classification per port */
 #define VTSS_FEATURE_QOS_EGRESS_SHAPERS_RT        /**< Qos: Egress shapers have rate type support - line or date rate */
+#define VTSS_FEATURE_QOS_EGRESS_SHAPER_FRAME      /**< Qos: Egress shapers have frame rate type support */
 //WRED is not supported on Fireant #define VTSS_FEATURE_QOS_WRED_V3                  /**< QoS: WRED global - per queue (0..7), per dpl (1..3), per group (0..2) */
 #define VTSS_FEATURE_QOS_INGRESS_MAP              /**< QoS: Has Ingress Map Table */
 #define VTSS_FEATURE_QOS_EGRESS_MAP               /**< QoS: Has Egress Map Table */
 #define VTSS_FEATURE_QOS_HSCH_LEAK_LISTS          /**< QoS: Has leak lists for scheduler elements */
 #define VTSS_FEATURE_QOS_POLICER_DLB             /**< DLB policers */
+#define VTSS_FEATURE_QOS_EGRESS_QUEUE_SHAPERS_CRB /**< QoS: Egress Queue Shapers has CRedit Based shaper support */
 #define VTSS_FEATURE_QOS_CPU_PORT_SHAPER          /**< QoS: Has CPU port shaper */
 #define VTSS_FEATURE_QOS_CPU_QUEUE_SHAPER         /**< QoS: Has CPU queue shaper */
 #define VTSS_FEATURE_QOS_EGRESS_QUEUE_CUT_THROUGH /**< QoS: Queue has cut-through support */
@@ -282,7 +290,6 @@
 #endif /* VTSS_CHIP_SERVAL_T/TE/TE10 */
 
 #if defined(VTSS_ARCH_JAGUAR_2)
-//#define VTSS_FEATURE_WARM_START                  /**< Warm start */
 #define VTSS_FEATURE_MISC                        /**< Miscellaneous */
 #define VTSS_FEATURE_SERIAL_GPIO                 /**< Serial GPIO control */
 #define VTSS_FEATURE_PORT_CONTROL                /**< Port control */
@@ -502,7 +509,6 @@
 #define VTSS_FEATURE_MCE_ACT_PRIO              /**< MCE action priority class */
 #define VTSS_FEATURE_AFI_SWC                   /**< Switch-core-based Automatic Frame Injection */
 #define VTSS_AFI_V1                            /**< AFI API version 1 */
-#define VTSS_FEATURE_WARM_START                /**< Warm start */
 #define VTSS_FEATURE_MISC                      /**< Miscellaneous */
 #define VTSS_FEATURE_PORT_CONTROL              /**< Port control */
 #define VTSS_FEATURE_PORT_IFH                  /**< Port IFH control */
@@ -593,14 +599,11 @@
 #define VTSS_FEATURE_VOP_V1                    /**< Version 1 OAM implementation. Serval-1 platform */
 #endif /* VTSS_ARCH_OCELOT */
 
-/* Cu PHY API always included for switch/OTN targets */
-#if defined(VTSS_FEATURE_PORT_CONTROL)
-#define VTSS_CHIP_CU_PHY                       /**< Cobber PHY chip */
-#endif /* VTSS_FEATURE_PORT_CONTROL */
+#define VTSS_FEATURE_WARM_START                /**< Warm start */
 
-/* 10G PHY API included if switch has 10G ports */
-#if defined(VTSS_FEATURE_10G)
-#define VTSS_CHIP_10G_PHY                      /**< 10Gb 848x Phy API  */
+#if defined(VTSS_FEATURE_LAYER2) && !VTSS_OPT_LIGHT
+#define VTSS_FEATURE_L2_ERPS                   /**< ERPS */
+#define VTSS_FEATURE_L2_MSTP                   /**< MSTP */
 #endif
 
 #if defined(VTSS_ARCH_JAGUAR_2) || defined(VTSS_ARCH_SPARX5)
@@ -619,6 +622,10 @@
 #define VTSS_OPT_TRACE 1 /**< Trace enabled by default */
 #endif /* VTSS_OPT_TRACE */
 
+#ifndef VTSS_OPT_DEBUG_PRINT
+#define VTSS_OPT_DEBUG_PRINT 1 /**< Debug print enabled by default */
+#endif /* VTSS_OPT_DEBUG_PRINT */
+
 /* VAUI equalization control, change value to 10 if PCB trace is more than 15 cm */
 #if !defined(VTSS_OPT_VAUI_EQ_CTRL)
 #define VTSS_OPT_VAUI_EQ_CTRL 6 /**< Default equalization control */
@@ -627,58 +634,5 @@
 #if !defined(VTSS_OPT_PORT_COUNT)
 #define VTSS_OPT_PORT_COUNT 0 /**< Use all target ports by default */
 #endif /* VTSS_OPT_PORT_COUNT */
-
-#if !defined(VTSS_PHY_OPT_VERIPHY)
-#define VTSS_PHY_OPT_VERIPHY 1 /**< VeriPHY enabled by default */
-#endif /* VTSS_PHY_OPT_VERIPHY */
-
-#if defined(VTSS_CHIP_CU_PHY)
-#define VTSS_FEATURE_WARM_START                /**< Warm start */
-#endif /* VTSS_CHIP_CU_PHY */
-
-#if defined(VTSS_CHIP_10G_PHY)
-#define VTSS_FEATURE_SYNCE_10G                 /**< SYNCE - L1 syncronization feature for 10G PHYs*/
-#define VTSS_FEATURE_EDC_FW_LOAD               /**< 848x EDC firmware will get loaded at initilization */
-#define VTSS_FEATURE_WIS                       /**< WAN interface sublayer functionality */
-#define VTSS_FEATURE_WARM_START                /**< Warm start */
-#define VTSS_ARCH_MALIBU                     /**< Used for Malibu-A PHY */
-#define VTSS_ARCH_MALIBU_B                     /**< Used for Malibu-B PHY */
-#define VTSS_ARCH_VENICE_C                     /**< Used for Venice-C PHY */
-#endif /* VTSS_CHIP_10G_PHY */
-
-// defining VTSS_10BASE_TE select 10BASE-Te settings. If not defined code will default to 10BASE-T .
-// 10BASE-Te settings select a reduced transmit amplitude that should be right in the middle of the spec. range.
-// The 10BASE-T settings will be right at the lower spec.-limit for 10BASE-T amplitude (higher than Te, but marginal to spec. the 2.2v spec.)
-//#define VTSS_10BASE_TE
-
-// defining VTSS_OPT_PHY_TIMESTAMP enables the timestamp feature in the phy's that support it, and also activates the
-// TimeOfDay monitor that ensures that the PHY timestampers are in sync with the Switch Timestamper.
-// The option must be defined by the user (build configuration) on the builds to boards that have a timestamp PHY mounted.
-// For special timestamp PHY builds the VTSS_FEATURE_PHY_TIMESTAMP is defined in this file, i.e. the
-// PHY timestamp will always be enabled on these builds.
-#if !defined(VTSS_OPT_PHY_TIMESTAMP)
-  #if defined(VTSS_FEATURE_PHY_TIMESTAMP)
-    #define VTSS_OPT_PHY_TIMESTAMP 1 /**< Enable PHY timestamp feature */
-  #endif
-#endif
-
-#if defined(VTSS_OPT_PHY_TIMESTAMP)
-    #define VTSS_VIPER_B_FIFO_RESET                      /**< Viper B 1588 OOS fix */
-    #define VTSS_VIPER_B_FIFO_RESET_API_CALL             /**< Viper B OOS fix taken care of within the PHY API */
-#endif
-// Some building script uses the feature define as an option. This is not the
-// idea, but we want to have some level of backwards compatibility. If
-// VTSS_OPT_PHY_MACSEC is defined, then it will control the availability for the
-// MACsec feature regardless of the VTSS_FEATURE_MACSEC define.
-#if defined(VTSS_OPT_PHY_MACSEC)
-#  undef VTSS_FEATURE_MACSEC
-#  if VTSS_OPT_PHY_MACSEC
-#    define VTSS_FEATURE_MACSEC /**< Enable macsec feature */
-#  endif
-#elif defined(VTSS_FEATURE_MACSEC)
-#  define VTSS_OPT_PHY_MACSEC 1 /**< Enable macsec feature */
-#else
-#  define VTSS_OPT_PHY_MACSEC 0 /**< Disable macsec feature */
-#endif
 
 #endif /* _VTSS_OPTIONS_H_ */

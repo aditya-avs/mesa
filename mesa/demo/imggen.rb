@@ -90,8 +90,8 @@ $machines = {
     "lan966x" => {
         :arch => "arm",
         :kernel => "#{$bsp}/arm-cortex_a8-linux-gnu/xstax/release/mscc-linux-kernel.bin.gz",
-        :kerneladdr  => "<0x60008000>",
-        :kernelentry => "<0x60008000>",
+        :kerneladdr  => "<0x60208000>",
+        :kernelentry => "<0x60208000>",
         :ramdiscaddr => "<0x68000000>",
         :kcomp => "gzip",
         :dt => [
@@ -110,19 +110,13 @@ $machines = {
           {
             :file => "#{$bsp}/arm-cortex_a8-linux-gnu/xstax/release/lan966x-mesa-pcb8290.dtb",
             :overlays => [
-                { :name => "lan9662_ung8290_0_at_lan966x", :file => "#{$p_mesa}/meba/dt/meba_lan966x_8290_0.dtso"},
+                { :name => "lan9668_ung8290_0_at_lan966x", :file => "#{$p_mesa}/meba/dt/meba_lan966x_8290_0.dtso"},
             ]
           },
           {
             :file => "#{$bsp}/arm-cortex_a8-linux-gnu/xstax/release/lan966x-mesa-pcb8281.dtb",
             :overlays => [
                 { :name => "lan9668_ung8281_0_at_lan966x", :file => "#{$p_mesa}/meba/dt/meba_lan966x_8281_0.dtso"},
-            ]
-          },
-          {
-            :file => "#{$bsp}/arm-cortex_a8-linux-gnu/xstax/release/lan966x-mesa-sr.dtb",
-            :overlays => [
-                { :name => "lan9668_sr6849_0_at_lan966x", :file => "#{$p_mesa}/meba/dt/meba_lan966x_6849_0.dtso"},
             ]
           },
         ],
@@ -138,11 +132,10 @@ $machines = {
         :kcomp => "gzip",
         :dt => [
             { :name => "pcb125",        :file => "#{$bsp}/arm64-armv8_a-linux-gnu/xstax/release/sparx5_pcb125.dtb"},
-            { :name => "pcb134",        :file => "#{$bsp}/arm64-armv8_a-linux-gnu/xstax/release/sparx5_pcb134.dtb"},
-            { :name => "pcb134_emmc",   :file => "#{$bsp}/arm64-armv8_a-linux-gnu/xstax/release/sparx5_pcb134_emmc.dtb"},
-            { :name => "pcb135",        :file => "#{$bsp}/arm64-armv8_a-linux-gnu/xstax/release/sparx5_pcb135.dtb"},
-            { :name => "pcb135_emmc",   :file => "#{$bsp}/arm64-armv8_a-linux-gnu/xstax/release/sparx5_pcb135_emmc.dtb"},
-            { :name => "ls1046_pcb121", :file => "#{$bsp}/arm64-armv8_a-linux-gnu/xstax/release/ls1046_pcb121.dtb"},
+            { :name => "pcb134",        :file => "#{$bsp}/arm64-armv8_a-linux-gnu/xstax/release/sparx5_appl_pcb134.dtb"},
+            { :name => "pcb134_emmc",   :file => "#{$bsp}/arm64-armv8_a-linux-gnu/xstax/release/sparx5_appl_pcb134_emmc.dtb"},
+            { :name => "pcb135",        :file => "#{$bsp}/arm64-armv8_a-linux-gnu/xstax/release/sparx5_appl_pcb135.dtb"},
+            { :name => "pcb135_emmc",   :file => "#{$bsp}/arm64-armv8_a-linux-gnu/xstax/release/sparx5_appl_pcb135_emmc.dtb"},
             { :name => "ls1046_pcb134", :file => "#{$bsp}/arm64-armv8_a-linux-gnu/xstax/release/ls1046_pcb134.dtb"},
         ],
         :fw_env => "/dev/mtd1 0x0000 0x2000 0x40000\n/dev/mtd2 0x0000 0x2000 0x40000\n",
@@ -151,7 +144,7 @@ $machines = {
 
     "ocelot_pcb121" => {
         :arch => "arm64",
-        :kernel => "#{$bsp}/arm64-armv8_a-linux-gnu/xstax/release/mscc-linux-kernel.bin.gz",
+        :kernel => "#{$bsp}/arm64-armv8_a-linux-gnu/standalone/release/mscc-linux-kernel.bin.gz",
         :kerneladdr => "<0x80080000>",
         :kernelentry => "<0x80080000>",
         :ramdiscaddr => "<0x88080000>",
@@ -166,7 +159,7 @@ $machines = {
 
     "BeagleBoneBlack" => {
         :arch        => "arm",
-        :kernel      => "#{$bsp}/arm-cortex_a8-linux-gnu/xstax/release/mscc-linux-kernel.bin.gz",
+        :kernel      => "#{$bsp}/arm-cortex_a8-linux-gnu/standalone/release/mscc-linux-kernel.bin.gz",
         :kerneladdr  => "<0x80080000>",
         :kernelentry => "<0x80080000>",
         :ramdiscaddr => "<0x88080000>",
@@ -174,10 +167,10 @@ $machines = {
         :dt => [
             {
               :name => "pcb134",
-              :file => "#{$bsp}/arm-cortex_a8-linux-gnu/xstax/release/am335x-boneblack-mscc.dtb"
+              :file => "#{$bsp}/arm-cortex_a8-linux-gnu/standalone/release/am335x-boneblack-mscc.dtb"
             },
             {
-              :file => "#{$bsp}/arm-cortex_a8-linux-gnu/xstax/release/am335x-boneblack-mscc.dtb",
+              :file => "#{$bsp}/arm-cortex_a8-linux-gnu/standalone/release/am335x-boneblack-mscc.dtb",
               :overlays => [
                   { :name => "6813_0@bbb", :file => "#{$p_mesa}/meba/dt/meba_lan966x_6813_0.dtso"},
                   { :name => "6849_0@bbb", :file => "#{$p_mesa}/meba/dt/meba_lan966x_6849_0.dtso"},

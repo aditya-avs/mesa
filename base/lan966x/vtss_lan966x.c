@@ -10,10 +10,11 @@
  *  Register access
  * ================================================================= */
 void vtss_lan966x_reg_error(const char *file, int line) {
-    printf("\n\nFATAL ERROR at %s:%d> Index exceed replication!\n\n", file, line);
+#if VTSS_OPT_TRACE
     vtss_callout_trace_printf(VTSS_TRACE_LAYER, VTSS_TRACE_GROUP_DEFAULT,
                               VTSS_TRACE_LEVEL_ERROR, file, line, file,
                               "Index exceed replication!");
+#endif
 }
 
 /* Read target register using current CPU interface */
@@ -81,6 +82,8 @@ vtss_rc vtss_lan966x_counter_update(vtss_state_t *vtss_state,
     return VTSS_RC_OK;
 }
 
+#if VTSS_OPT_DEBUG_PRINT
+
 /* ================================================================= *
  *  Debug print utility functions
  * ================================================================= */
@@ -105,7 +108,7 @@ void vtss_lan966x_debug_reg_header(const vtss_debug_printf_t pr, const char *nam
 {
     char buf[64];
 
-    sprintf(buf, "%-32s  ", name);
+    VTSS_SPRINTF(buf, "%-32s  ", name);
     vtss_debug_print_reg_header(pr, buf);
 }
 
@@ -116,7 +119,7 @@ void vtss_lan966x_debug_reg(vtss_state_t *vtss_state,
     char buf[200];
 
     if (vtss_lan966x_rd(vtss_state, addr, &value) == VTSS_RC_OK) {
-        sprintf(buf, "%-32s  ", name);
+        VTSS_SPRINTF(buf, "%-32s  ", name);
         vtss_debug_print_reg(pr, buf, value);
     }
 }
@@ -126,7 +129,7 @@ void vtss_lan966x_debug_reg_inst(vtss_state_t *vtss_state,
 {
     char buf[64];
 
-    sprintf(buf, "%s_%u", name, i);
+    VTSS_SPRINTF(buf, "%s_%u", name, i);
     vtss_lan966x_debug_reg(vtss_state, pr, addr, buf);
 }
 
@@ -136,13 +139,13 @@ void vtss_lan966x_debug_cnt(const vtss_debug_printf_t pr, const char *col1, cons
     char buf[80];
 
     if (col1 != NULL) {
-        sprintf(buf, "rx_%s:", col1);
+        VTSS_SPRINTF(buf, "rx_%s:", col1);
         pr("%-28s%10" PRIu64 "   ", buf, c1->prev);
     } else {
         pr("%-41s", "");
     }
     if (col2 != NULL) {
-        sprintf(buf, "tx_%s:", strlen(col2) ? col2 : col1);
+        VTSS_SPRINTF(buf, "tx_%s:", VTSS_STRLEN(col2) ? col2 : col1);
         pr("%-28s%10" PRIu64, buf, c2 ? c2->prev : (u64) 0);
     }
     pr("\n");
@@ -158,10 +161,18 @@ static vtss_rc lan966x_debug_info_print(vtss_state_t *vtss_state,
     VTSS_RC(vtss_lan966x_misc_debug_print(vtss_state, pr, info));
     VTSS_RC(vtss_lan966x_port_debug_print(vtss_state, pr, info));
     VTSS_RC(vtss_lan966x_l2_debug_print(vtss_state, pr, info));
+#if defined(VTSS_FEATURE_VCAP)
     VTSS_RC(vtss_lan966x_vcap_debug_print(vtss_state, pr, info));
+#endif
+#if defined(VTSS_FEATURE_QOS)
     VTSS_RC(vtss_lan966x_qos_debug_print(vtss_state, pr, info));
+#endif
+#if defined(VTSS_FEATURE_PACKET)
     VTSS_RC(vtss_lan966x_packet_debug_print(vtss_state, pr, info));
+#endif
+#if defined(VTSS_AFI_V2)
     VTSS_RC(vtss_lan966x_afi_debug_print(vtss_state, pr, info));
+#endif
 #if defined(VTSS_FEATURE_TIMESTAMP)
     VTSS_RC(vtss_lan966x_ts_debug_print(vtss_state, pr, info));
 #endif /* VTSS_FEATURE_TIMESTAMP */
@@ -173,16 +184,25 @@ static vtss_rc lan966x_debug_info_print(vtss_state_t *vtss_state,
 #endif /* VTSS_FEATURE_MRP */
     return VTSS_RC_OK;
 }
+#endif // VTSS_OPT_DEBUG_PRINT
 
 vtss_rc vtss_lan966x_init_groups(vtss_state_t *vtss_state, vtss_init_cmd_t cmd)
 {
     VTSS_RC(vtss_lan966x_port_init(vtss_state, cmd));
     VTSS_RC(vtss_lan966x_misc_init(vtss_state, cmd));
+#if defined(VTSS_FEATURE_PACKET)
     VTSS_RC(vtss_lan966x_packet_init(vtss_state, cmd));
+#endif
+#if defined(VTSS_AFI_V2)
     VTSS_RC(vtss_lan966x_afi_init(vtss_state, cmd));
+#endif
     VTSS_RC(vtss_lan966x_l2_init(vtss_state, cmd));
+#if defined(VTSS_FEATURE_VCAP)
     VTSS_RC(vtss_lan966x_vcap_init(vtss_state, cmd));
+#endif
+#if defined(VTSS_FEATURE_QOS)
     VTSS_RC(vtss_lan966x_qos_init(vtss_state, cmd));
+#endif
 #if defined(VTSS_FEATURE_TIMESTAMP)
     VTSS_RC(vtss_lan966x_ts_init(vtss_state, cmd));
 #endif
@@ -222,6 +242,17 @@ static vtss_rc lan966x_mux_mode_set(vtss_state_t *vtss_state)
                HSIO_HW_CFG_SD6G_1_CFG(1) |
                HSIO_HW_CFG_GMII_ENA(3) |
                HSIO_HW_CFG_QSGMII_ENA(2));
+        REG_WR(CHIP_TOP_CUPHY_COMMON_CFG,
+               CHIP_TOP_CUPHY_COMMON_CFG_XPHYAD0(1) |
+               CHIP_TOP_CUPHY_COMMON_CFG_MDC_SEL(1) |
+               CHIP_TOP_CUPHY_COMMON_CFG_RESET_N(1));
+        break;
+    case VTSS_PORT_MUX_MODE_2:
+        // 2xCu + 1x2,5G + 2xRGMII(dev2,dev3)
+        REG_WR(HSIO_HW_CFG,
+               HSIO_HW_CFG_RGMII_ENA(3) |
+               HSIO_HW_CFG_GMII_ENA(0xf));
+
         REG_WR(CHIP_TOP_CUPHY_COMMON_CFG,
                CHIP_TOP_CUPHY_COMMON_CFG_XPHYAD0(1) |
                CHIP_TOP_CUPHY_COMMON_CFG_MDC_SEL(1) |
@@ -285,7 +316,8 @@ static vtss_rc lan966x_init_conf_set(vtss_state_t *vtss_state)
 
     /* Initialize RAM */
     REG_WRM(SYS_RESET_CFG, SYS_RESET_CFG_CORE_ENA(0), SYS_RESET_CFG_CORE_ENA_M);
-    REG_WRM(SYS_RAM_INIT, SYS_RAM_INIT_RAM_INIT(1), SYS_RAM_INIT_RAM_INIT_M);
+    REG_WRM(SYS_RAM_INIT, SYS_RAM_INIT_RAM_INIT(1) | SYS_RAM_INIT_RAM_CFG_HOOK(0),
+            SYS_RAM_INIT_RAM_INIT_M | SYS_RAM_INIT_RAM_CFG_HOOK_M);
     do {
         REG_RD(SYS_RAM_INIT, &val);
     } while (SYS_RAM_INIT_RAM_INIT_X(val) != 0);
@@ -307,7 +339,9 @@ vtss_rc vtss_lan966x_inst_create(vtss_state_t *vtss_state)
     vtss_state->cil.init_conf_set = lan966x_init_conf_set;
     vtss_state->cil.register_access_mode_set = lan966x_register_access_mode_set;
     vtss_state->cil.restart_conf_set = lan966x_restart_conf_set;
+#if VTSS_OPT_DEBUG_PRINT
     vtss_state->cil.debug_info_print = lan966x_debug_info_print;
+#endif
     vtss_state->port.map_set = lan966x_port_map_set;
 
     /* Create function groups */

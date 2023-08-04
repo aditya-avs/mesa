@@ -127,7 +127,7 @@ static vtss_rc l26_ip_mc_fid_alloc(vtss_state_t *vtss_state, vtss_vid_t *fid, BO
     /* Search for free VID from 4094 -> 2 */
     for (vid = (VTSS_VID_RESERVED - 1); vid > VTSS_VID_DEFAULT; vid--) {
         vlan_entry = &vtss_state->l2.vlan_table[vid];
-        if (vlan_entry->enabled || (vlan_entry->ipmc_used & mask) != 0)
+        if ((vlan_entry->flags & VLAN_FLAGS_ENABLED) || (vlan_entry->ipmc_used & mask) != 0)
             continue;
         
         if (vlan_entry->ipmc_used == IPMC_USED_NONE) {
@@ -279,7 +279,7 @@ static vtss_rc l26_ip_mc_update(vtss_state_t *vtss_state,
     id = l26_ip_mc_vcap_id(&ipmc->src, ipmc->ipv6);
 
     /* MAC address */
-    memset(&mac_entry, 0, sizeof(mac_entry));
+    VTSS_MEMSET(&mac_entry, 0, sizeof(mac_entry));
     mac_entry.locked = 1;
     l26_ip_mc_mac_get(vid_mac, &ipmc->dst, ipmc->ipv6);
     
@@ -374,7 +374,7 @@ static vtss_rc l26_ip_mc_update(vtss_state_t *vtss_state,
                 /* SSM entry, clear ASM add flag if DIP matches */
                 for (dst_asm = dst_asm_first; dst_asm != NULL; dst_asm = dst_asm->next) {
                     if (dst_asm->add && 
-                        memcmp(&dst->data.dip, &dst_asm->data.dip, sizeof(vtss_ip_addr_internal_t)) == 0)
+                        VTSS_MEMCMP(&dst->data.dip, &dst_asm->data.dip, sizeof(vtss_ip_addr_internal_t)) == 0)
                         dst_asm->add = 0;
                     if (dst_asm == dst_asm_last)
                         break;
@@ -427,7 +427,7 @@ static vtss_rc l26_ip_mc_update(vtss_state_t *vtss_state,
         }
         
         /* Clear destination set */
-        memset(mac_entry.destination, 0, port_count);
+        VTSS_MEMSET(mac_entry.destination, 0, port_count);
         dmac_found = 0;
     }
     
@@ -1054,7 +1054,7 @@ static vtss_rc l26_vlan_port_conf_apply(vtss_state_t *vtss_state,
              VTSS_F_REW_PORT_TAG_CFG_TAG_VID_CFG |
              VTSS_F_REW_PORT_TAG_CFG_TAG_CFG(
                  conf->untagged_vid == VTSS_VID_ALL ? TAG_CFG_DISABLE :
-                 conf->untagged_vid == VTSS_VID_NULL ? TAG_CFG_ALL : TAG_CFG_ALL_NPV_NNUL));
+                 conf->untagged_vid == VTSS_VID_NULL ? TAG_CFG_ALL_NNUL : TAG_CFG_ALL_NPV_NNUL));
     L26_WRM(VTSS_REW_PORT_TAG_CFG(port), value, 
             VTSS_M_REW_PORT_TAG_CFG_TAG_TPID_CFG | 
             VTSS_F_REW_PORT_TAG_CFG_TAG_VID_CFG |
@@ -1091,17 +1091,19 @@ static vtss_rc l26_vlan_table_idle(vtss_state_t *vtss_state)
 static vtss_rc l26_vlan_mask_update(vtss_state_t *vtss_state,
                                     vtss_vid_t vid, BOOL member[VTSS_PORT_ARRAY_SIZE])
 {
-    vtss_vlan_entry_t *vlan_entry = &vtss_state->l2.vlan_table[vid];
+    vtss_vlan_entry_t *e = &vtss_state->l2.vlan_table[vid];
     u32               value;
 
     /* Index and properties */
     value = VTSS_F_ANA_ANA_TABLES_VLANTIDX_V_INDEX(vid);
-    if(vlan_entry->isolated)
+    if (e->flags & VLAN_FLAGS_ISOLATED)
         value |= VTSS_F_ANA_ANA_TABLES_VLANTIDX_VLAN_PRIV_VLAN;
-    if (!vlan_entry->conf.learning)
+    if (!(e->flags & VLAN_FLAGS_LEARN))
         value |= VTSS_F_ANA_ANA_TABLES_VLANTIDX_VLAN_LEARN_DISABLED;
-    if (vlan_entry->conf.mirror)
+    if (e->flags & VLAN_FLAGS_MIRROR)
         value |= VTSS_F_ANA_ANA_TABLES_VLANTIDX_VLAN_MIRROR;
+    if (e->flags & VLAN_FLAGS_FILTER)
+        value |= VTSS_F_ANA_ANA_TABLES_VLANTIDX_VLAN_SRC_CHK;
     L26_WR(VTSS_ANA_ANA_TABLES_VLANTIDX, value);
 
     /* VLAN mask */
@@ -1110,7 +1112,7 @@ static vtss_rc l26_vlan_mask_update(vtss_state_t *vtss_state,
     L26_WR(VTSS_ANA_ANA_TABLES_VLANACCESS, value);
 
     /* Adjust IP multicast entries if neccessary */
-    if (vlan_entry->enabled && vlan_entry->ipmc_used) {
+    if ((e->flags & VLAN_FLAGS_ENABLED) && e->ipmc_used) {
         VTSS_RC(l26_ip_mc_fid_adjust(vtss_state, vid));
     }
 
@@ -1259,7 +1261,7 @@ static vtss_rc l26_debug_vlan(vtss_state_t *vtss_state,
     char              buf[32];
 
     for (port = 0; port <= VTSS_CHIP_PORT_CPU_1; port++) {
-        sprintf(buf, "Port %u", port);
+        VTSS_SPRINTF(buf, "Port %u", port);
         vtss_l26_debug_reg_header(pr, buf);
         if (port != VTSS_CHIP_PORT_CPU_1) {
             vtss_l26_debug_reg_inst(vtss_state, pr, VTSS_ANA_PORT_VLAN_CFG(port), port, "ANA:VLAN_CFG");
@@ -1276,7 +1278,7 @@ static vtss_rc l26_debug_vlan(vtss_state_t *vtss_state,
     
     for (vid = VTSS_VID_NULL; vid < VTSS_VIDS; vid++) {
         vlan_entry = &vtss_state->l2.vlan_table[vid];
-        if (!vlan_entry->enabled && !info->full)
+        if (!(vlan_entry->flags & VLAN_FLAGS_ENABLED) && !info->full)
             continue;
 
         L26_WR(VTSS_ANA_ANA_TABLES_VLANTIDX, VTSS_F_ANA_ANA_TABLES_VLANTIDX_V_INDEX(vid));
@@ -1289,12 +1291,13 @@ static vtss_rc l26_debug_vlan(vtss_state_t *vtss_state,
         L26_RD(VTSS_ANA_ANA_TABLES_VLANTIDX, &value);
 
         if (header)
-            vtss_l26_debug_print_port_header(vtss_state, pr, "VID   Lrn  Mir  Prv  ");
+            vtss_l26_debug_print_port_header(vtss_state, pr, "VID   Lrn  Mir  Flt  Prv  ");
         header = 0;
 
-        pr("%-6u%-5u%-5u%-5u", vid,
+        pr("%-6u%-5u%-5u%-5u%-5u", vid,
            value & VTSS_F_ANA_ANA_TABLES_VLANTIDX_VLAN_LEARN_DISABLED ? 0 : 1,
            value & VTSS_F_ANA_ANA_TABLES_VLANTIDX_VLAN_MIRROR ? 1 : 0,
+           value & VTSS_F_ANA_ANA_TABLES_VLANTIDX_VLAN_SRC_CHK ? 1 : 0,
            value & VTSS_F_ANA_ANA_TABLES_VLANTIDX_VLAN_PRIV_VLAN ? 1 : 0);
         l26_debug_print_mask(pr, mask);
 
@@ -1510,7 +1513,7 @@ static vtss_rc l26_debug_ipmc(vtss_state_t *vtss_state,
 
     /* MAC address table in chip */
     header = TRUE;
-    memset(&mac_entry, 0, sizeof(mac_entry));
+    VTSS_MEMSET(&mac_entry, 0, sizeof(mac_entry));
     p = &mac_entry.vid_mac.mac.addr[0];
     while (l26_mac_table_get_next(vtss_state, &mac_entry, &pgid) == VTSS_RC_OK) {
         if (header)

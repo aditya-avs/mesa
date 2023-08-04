@@ -152,6 +152,8 @@ static uint32_t ocelot_capability(meba_inst_t inst,
             return false;
         case MEBA_CAP_CPU_PORTS_COUNT:
             return 0;
+        case MEBA_CAP_BOARD_PORT_POE_COUNT:
+            return 0;
         default:
             T_E(inst, "Unknown capability %d", cap);
             MEBA_ASSERT(0);
@@ -270,13 +272,13 @@ static mesa_rc ocelot_reset(meba_inst_t inst,
             sleep(1); // Make sure PHYs are accessible
             break;
         case MEBA_PORT_RESET:
-            if ((rc = mesa_phy_pre_reset(PHY_INST, int_phy_base_port)) == MESA_RC_OK) { // Internal Nano PHY
-                rc = mesa_phy_pre_reset(PHY_INST, ext_phy_base_port); // External Viper PHY
+            if ((rc = vtss_phy_pre_reset(PHY_INST, int_phy_base_port)) == MESA_RC_OK) { // Internal Nano PHY
+                rc = vtss_phy_pre_reset(PHY_INST, ext_phy_base_port); // External Viper PHY
             }
             break;
         case MEBA_PORT_RESET_POST:
-            if ((rc = mesa_phy_post_reset(PHY_INST, int_phy_base_port)) == MESA_RC_OK) { // Internal Nano PHY
-                rc = mesa_phy_post_reset(PHY_INST, ext_phy_base_port); // External Viper PHY
+            if ((rc = vtss_phy_post_reset(PHY_INST, int_phy_base_port)) == MESA_RC_OK) { // Internal Nano PHY
+                rc = vtss_phy_post_reset(PHY_INST, ext_phy_base_port); // External Viper PHY
             }
             break;
         case MEBA_STATUS_LED_INITIALIZE:
@@ -284,8 +286,8 @@ static mesa_rc ocelot_reset(meba_inst_t inst,
         case MEBA_FAN_INITIALIZE:
             break;
         case MEBA_SENSOR_INITIALIZE:
-            if ((rc = mesa_phy_chip_temp_init(PHY_INST, int_phy_base_port)) == MESA_RC_OK) { // Internal Nano PHY
-                rc = mesa_phy_chip_temp_init(PHY_INST, ext_phy_base_port); // External Viper PHY
+            if ((rc = vtss_phy_chip_temp_init(PHY_INST, int_phy_base_port)) == MESA_RC_OK) { // Internal Nano PHY
+                rc = vtss_phy_chip_temp_init(PHY_INST, ext_phy_base_port); // External Viper PHY
             }
             break;
         case MEBA_INTERRUPT_INITIALIZE:

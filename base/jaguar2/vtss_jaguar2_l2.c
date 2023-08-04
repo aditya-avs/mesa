@@ -268,7 +268,7 @@ static vtss_rc jr2_mac_table_result(vtss_state_t *vtss_state, vtss_mac_table_ent
     VTSS_D("mach: 0x%08x, macl: 0x%08x, cfg2: 0x%08x", mach, macl, cfg2);
 
     /* Extract fields from Jaguar registers */
-    memset(entry, 0, sizeof(*entry));
+    VTSS_MEMSET(entry, 0, sizeof(*entry));
     entry->aged        = VTSS_BOOL(VTSS_X_LRN_COMMON_MAC_ACCESS_CFG_2_MAC_ENTRY_AGE_FLAG(cfg2));
     entry->copy_to_cpu = 0;
     entry->copy_to_cpu_smac = VTSS_BOOL(cfg2 & VTSS_M_LRN_COMMON_MAC_ACCESS_CFG_2_MAC_ENTRY_CPU_COPY);
@@ -327,7 +327,7 @@ static vtss_rc jr2_mac_table_get_next(vtss_state_t *vtss_state, vtss_mac_table_e
     vtss_pgid_entry_t *pgid_entry = &vtss_state->l2.pgid_table[VTSS_PGID_NONE];
 
     /* Clear PGID entry for IPMC/GLAG entries */
-    memset(pgid_entry, 0, sizeof(*pgid_entry));
+    VTSS_MEMSET(pgid_entry, 0, sizeof(*pgid_entry));
 
     vtss_mach_macl_get(&entry->vid_mac, &mach, &macl);
     VTSS_D("address 0x%08x%08x", mach, macl);
@@ -395,7 +395,7 @@ static vtss_rc jr2_mac_table_age_cmd(vtss_state_t *vtss_state,
                                      BOOL             age)
 {
     u32        port, addr = 0, addr_type = MAC_ENTRY_ADDR_TYPE_UPSID_PN;
-    vtss_vid_t fid = vtss_state->l2.vlan_table[vid].conf.fid;
+    vtss_vid_t fid = vtss_state->l2.vlan_table[vid].fid;
 
     if (pgid_age) {
         if (pgid < vtss_state->port_count) {
@@ -443,7 +443,7 @@ static vtss_rc jr2_mac_table_age(vtss_state_t *vtss_state,
 
 static vtss_rc jr2_mac_table_status_get(vtss_state_t *vtss_state, vtss_mac_table_status_t *status) 
 {
-    memset(status, 0, sizeof(*status));
+    VTSS_MEMSET(status, 0, sizeof(*status));
 
     u32 value;
     
@@ -537,31 +537,34 @@ static vtss_rc jr2_vlan_conf_set(vtss_state_t *vtss_state)
 
 vtss_rc vtss_jr2_vlan_update(vtss_state_t *vtss_state, vtss_vid_t vid)
 {
-    vtss_vlan_entry_t    *vlan_entry = &vtss_state->l2.vlan_table[vid];
-    vtss_vlan_vid_conf_t *conf = &vlan_entry->conf;
-    u32                  value, mask, vmid_cfg, vlan_idx;
+    vtss_vlan_entry_t *e = &vtss_state->l2.vlan_table[vid];
+    u32               value, mask, vmid_cfg, vlan_idx;
 
-    value = (VTSS_F_ANA_L3_VLAN_VLAN_CFG_VLAN_MSTP_PTR(vlan_entry->msti) |
-             VTSS_F_ANA_L3_VLAN_VLAN_CFG_VLAN_FID(conf->fid == 0 ? vid : conf->fid) |
-             VTSS_F_ANA_L3_VLAN_VLAN_CFG_VLAN_LRN_DIS(conf->learning ? 0 : 1) |
-             VTSS_F_ANA_L3_VLAN_VLAN_CFG_VLAN_RLEG_ENA(vlan_entry->rl_enable) |
-             VTSS_F_ANA_L3_VLAN_VLAN_CFG_VLAN_PRIVATE_ENA(vlan_entry->isolated) |
-             VTSS_F_ANA_L3_VLAN_VLAN_CFG_VLAN_MIRROR_ENA(conf->mirror));
+    value = (VTSS_F_ANA_L3_VLAN_VLAN_CFG_VLAN_MSTP_PTR(e->msti) |
+             VTSS_F_ANA_L3_VLAN_VLAN_CFG_VLAN_FID(e->fid == 0 ? vid : e->fid) |
+             VTSS_F_ANA_L3_VLAN_VLAN_CFG_VLAN_IGR_FILTER_ENA(e->flags & VLAN_FLAGS_FILTER ? 1 : 0) |
+             VTSS_F_ANA_L3_VLAN_VLAN_CFG_VLAN_FLOOD_DIS(e->flags & VLAN_FLAGS_FLOOD ? 0 : 1) |
+             VTSS_F_ANA_L3_VLAN_VLAN_CFG_VLAN_LRN_DIS(e->flags & VLAN_FLAGS_LEARN ? 0 : 1) |
+             VTSS_F_ANA_L3_VLAN_VLAN_CFG_VLAN_RLEG_ENA(e->rl_enable) |
+             VTSS_F_ANA_L3_VLAN_VLAN_CFG_VLAN_PRIVATE_ENA(e->flags & VLAN_FLAGS_ISOLATED ? 1 : 0) |
+             VTSS_F_ANA_L3_VLAN_VLAN_CFG_VLAN_MIRROR_ENA(e->flags & VLAN_FLAGS_MIRROR ? 1 : 0));
     mask = (VTSS_M_ANA_L3_VLAN_VLAN_CFG_VLAN_MSTP_PTR |
             VTSS_M_ANA_L3_VLAN_VLAN_CFG_VLAN_FID |
+            VTSS_M_ANA_L3_VLAN_VLAN_CFG_VLAN_IGR_FILTER_ENA |
+            VTSS_M_ANA_L3_VLAN_VLAN_CFG_VLAN_FLOOD_DIS |
             VTSS_M_ANA_L3_VLAN_VLAN_CFG_VLAN_LRN_DIS |
             VTSS_M_ANA_L3_VLAN_VLAN_CFG_VLAN_RLEG_ENA |
             VTSS_M_ANA_L3_VLAN_VLAN_CFG_VLAN_PRIVATE_ENA |
             VTSS_M_ANA_L3_VLAN_VLAN_CFG_VLAN_MIRROR_ENA);
-    vmid_cfg = VTSS_F_ANA_L3_VLAN_VMID_CFG_VMID(vlan_entry->rl_id);
+    vmid_cfg = VTSS_F_ANA_L3_VLAN_VMID_CFG_VMID(e->rl_id);
 
     /* Setup VID entry */
     JR2_WRM(VTSS_ANA_L3_VLAN_VLAN_CFG(vid), value, mask);
     JR2_WR(VTSS_ANA_L3_VLAN_VMID_CFG(vid), vmid_cfg);
 
-    if (vlan_entry->vsi_enable && vlan_entry->vsi != NULL) {
+    if (e->vsi_enable && e->vsi != NULL) {
         /* Setup VSI entry */
-        vlan_idx = (VTSS_VIDS + vlan_entry->vsi->vsi);
+        vlan_idx = (VTSS_VIDS + e->vsi->vsi);
         JR2_WRM(VTSS_ANA_L3_VLAN_VLAN_CFG(vlan_idx), value, mask);
         JR2_WR(VTSS_ANA_L3_VLAN_VMID_CFG(vlan_idx), vmid_cfg);
     }
@@ -701,7 +704,7 @@ vtss_rc vtss_jr2_vlan_port_conf_apply(vtss_state_t          *vtss_state,
 
     /* Rewriter VLAN tag configuration */
     JR2_WRM(VTSS_REW_PORT_TAG_CTRL(port),
-            VTSS_F_REW_PORT_TAG_CTRL_TAG_CFG(uvid == VTSS_VID_ALL ? 0 : uvid == VTSS_VID_NULL ? 3 : 1) |
+            VTSS_F_REW_PORT_TAG_CTRL_TAG_CFG(uvid == VTSS_VID_ALL ? 0 : uvid == VTSS_VID_NULL ? 2 : 1) |
             VTSS_F_REW_PORT_TAG_CTRL_TAG_TPID_CFG(tpid),
             VTSS_M_REW_PORT_TAG_CTRL_TAG_CFG |
             VTSS_M_REW_PORT_TAG_CTRL_TAG_TPID_CFG);
@@ -846,7 +849,7 @@ static vtss_rc jr2_icnt_get(vtss_state_t *vtss_state, u16 idx, vtss_ingress_coun
     vtss_stat_idx_t     sidx;
     vtss_evc_counters_t cnt;
 
-    memset(&cnt, 0, sizeof(cnt));
+    VTSS_MEMSET(&cnt, 0, sizeof(cnt));
     sidx.idx = idx;
     sidx.edx = 0;
     VTSS_RC(vtss_jr2_sdx_counters_update(vtss_state, &sidx, &cnt, counters == NULL));
@@ -866,7 +869,7 @@ static vtss_rc jr2_ecnt_get(vtss_state_t *vtss_state, u16 idx, vtss_egress_count
     vtss_stat_idx_t     sidx;
     vtss_evc_counters_t cnt;
 
-    memset(&cnt, 0, sizeof(cnt));
+    VTSS_MEMSET(&cnt, 0, sizeof(cnt));
     sidx.idx = 0;
     sidx.edx = idx;
     VTSS_RC(vtss_jr2_sdx_counters_update(vtss_state, &sidx, &cnt, counters == NULL));
@@ -1047,7 +1050,7 @@ static vtss_rc jr2_ip_mc_update(vtss_state_t *vtss_state,
     int                   i;
 
     if (cmd == VTSS_IPMC_CMD_CHECK) {
-        memset(&res, 0, sizeof(res));
+        VTSS_MEMSET(&res, 0, sizeof(res));
         if (ipmc->dst_add) {
             res.add_key[key_size] = 1;
         }
@@ -1249,7 +1252,7 @@ static void jr2_debug_pmask_header(vtss_state_t *vtss_state, const vtss_debug_pr
 {
     char buf[64];
 
-    sprintf(buf, "%-34s", name == NULL ? "Port" : name);
+    VTSS_SPRINTF(buf, "%-34s", name == NULL ? "Port" : name);
     vtss_jr2_debug_print_port_header(vtss_state, pr, buf);
 
 }
@@ -1270,27 +1273,23 @@ static vtss_rc jr2_debug_vlan_entry(vtss_state_t *vtss_state,
 {
     u32  value;
     u64  pmask;
-    char buf[64], buf1[32], *p = buf1;
+    char buf[64];
 
     JR2_RDX_PMASK(VTSS_ANA_L3_VLAN_VLAN_MASK_CFG, vlan_idx, &pmask);
     JR2_RD(VTSS_ANA_L3_VLAN_VLAN_CFG(vlan_idx), &value);
 
     if (header) {
-        jr2_debug_pmask_header(vtss_state, pr, "VID  IDX/VSI   FID  MSTI  L/M/P");
+        jr2_debug_pmask_header(vtss_state, pr, "VID  IDX   FID  MSTI  L/F/M/F/P");
     }
-    p += sprintf(p, "%u/", vlan_idx);
-    if (vlan_idx < VTSS_VIDS) {
-        p += sprintf(p, "%s", "-");
-    } else {
-        p += sprintf(p, "%u", vlan_idx - VTSS_VIDS);
-    }
-    sprintf(buf, "%-5u%-10s%-5u%-6u%u/%u/%u",
+    VTSS_SPRINTF(buf, "%-5u%-6u%-5u%-6u%u/%u/%u/%u/%u",
             vid,
-            buf1,
+            vlan_idx,
             VTSS_X_ANA_L3_VLAN_VLAN_CFG_VLAN_FID(value),
             VTSS_X_ANA_L3_VLAN_VLAN_CFG_VLAN_MSTP_PTR(value),
             VTSS_X_ANA_L3_VLAN_VLAN_CFG_VLAN_LRN_DIS(value) ? 0 : 1,
+            VTSS_X_ANA_L3_VLAN_VLAN_CFG_VLAN_FLOOD_DIS(value) ? 0 : 1,
             VTSS_X_ANA_L3_VLAN_VLAN_CFG_VLAN_MIRROR_ENA(value),
+            VTSS_X_ANA_L3_VLAN_VLAN_CFG_VLAN_IGR_FILTER_ENA(value),
             VTSS_X_ANA_L3_VLAN_VLAN_CFG_VLAN_PRIVATE_ENA(value));
     jr2_debug_pmask(pr, buf, pmask);
 
@@ -1325,7 +1324,7 @@ static vtss_rc jr2_debug_vlan(vtss_state_t *vtss_state,
         if (info->port_list[port_no] == 0)
             continue;
         port = VTSS_CHIP_PORT(port_no);
-        sprintf(buf, "Port %u (%u)", port, port_no);
+        VTSS_SPRINTF(buf, "Port %u (%u)", port, port_no);
         vtss_jr2_debug_reg_header(pr, buf);
         vtss_jr2_debug_reg_inst(vtss_state, pr, VTSS_ANA_CL_PORT_VLAN_FILTER_CTRL(port, 0), port, "ANA:VLAN_FILTER_CTRL");
         vtss_jr2_debug_reg_inst(vtss_state, pr, VTSS_ANA_CL_PORT_VLAN_CTRL(port),      port, "ANA:VLAN_CTRL");
@@ -1353,7 +1352,7 @@ static vtss_rc jr2_debug_vlan(vtss_state_t *vtss_state,
 
     for (vid = VTSS_VID_NULL; vid < VTSS_VIDS; vid++) {
         vlan_entry = &vtss_state->l2.vlan_table[vid];
-        if (info->full || vlan_entry->enabled) {
+        if (info->full || (vlan_entry->flags & VLAN_FLAGS_ENABLED)) {
             VTSS_RC(jr2_debug_vlan_entry(vtss_state, pr, vid, vid, header));
             header = 0;
             if ((vlan_entry->vsi_enable) && (vlan_entry->vsi != NULL)) {
@@ -1369,7 +1368,7 @@ static vtss_rc jr2_debug_vlan(vtss_state_t *vtss_state,
     header = 1;
     for (vid = VTSS_VID_NULL; vid < VTSS_VIDS; vid++) {
         vlan_entry = &vtss_state->l2.vlan_table[vid];
-        if (info->full || vlan_entry->enabled) {
+        if (info->full || (vlan_entry->flags & VLAN_FLAGS_ENABLED)) {
             jr2_debug_vlan_cfg(vtss_state, pr, vid, header);
             header = 0;
             if ((vlan_entry->vsi_enable) && (vlan_entry->vsi != NULL)) {
@@ -1397,7 +1396,7 @@ static vtss_rc jr2_debug_src_table(vtss_state_t *vtss_state,
     jr2_debug_pmask_header(vtss_state, pr, NULL);
     for (port = 0; port <= VTSS_CHIP_PORTS; port++) {
         JR2_RDX_PMASK(VTSS_ANA_AC_SRC_SRC_CFG, port, &pmask);
-        sprintf(buf, "%u", port);
+        VTSS_SPRINTF(buf, "%u", port);
         jr2_debug_pmask(pr, buf, pmask);
     }
     pr("\n");
@@ -1417,7 +1416,7 @@ static vtss_rc jr2_debug_aggr_table(vtss_state_t *vtss_state,
     jr2_debug_pmask_header(vtss_state, pr, "AC");
     for (ac = 0; ac < 16; ac++) {
         JR2_RDX_PMASK(VTSS_ANA_AC_AGGR_AGGR_CFG, ac, &pmask);
-        sprintf(buf, "%u", ac);
+        VTSS_SPRINTF(buf, "%u", ac);
         jr2_debug_pmask(pr, buf, pmask);
     }
     pr("\n");
@@ -1451,7 +1450,7 @@ static vtss_rc jr2_debug_pgid_table(vtss_state_t *vtss_state,
         cpu_copy = VTSS_X_ANA_AC_PGID_PGID_MISC_CFG_PGID_CPU_COPY_ENA(value);
         if (pgid > 60 && pmask == 0 && !cpu_copy && !info->full)
             continue;
-        sprintf(buf, "%-5u%-11s%-5u%-5u%-5u", pgid,
+        VTSS_SPRINTF(buf, "%-5u%-11s%-5u%-5u%-5u", pgid,
                 pgid == PGID_UC_FLOOD ? "UC" :
                 pgid == PGID_MC_FLOOD ? "MC" :
                 pgid == PGID_IPV4_MC_DATA ? "IPv4 Data" :
@@ -1502,10 +1501,10 @@ static vtss_rc jr2_debug_mac_table(vtss_state_t *vtss_state,
     u64                    pmask;
     u8                     pgids_to_print[VTSS_BF_SIZE(VTSS_PGIDS)];
 
-    memset(pgids_to_print, 0, sizeof(pgids_to_print));
+    VTSS_MEMSET(pgids_to_print, 0, sizeof(pgids_to_print));
 
     /* Dump MAC address table */
-    memset(&mac_entry, 0, sizeof(mac_entry));
+    VTSS_MEMSET(&mac_entry, 0, sizeof(mac_entry));
 
     while (jr2_mac_table_get_next(vtss_state, &mac_entry, &pgid) == VTSS_RC_OK) {
         chip_pgid = vtss_jr2_chip_pgid(vtss_state, pgid);
@@ -1642,10 +1641,10 @@ static vtss_rc jr2_debug_stp(vtss_state_t *vtss_state,
     jr2_debug_pmask_header(vtss_state, pr, NULL);
     for (msti = VTSS_MSTI_START; msti < VTSS_MSTI_END; msti++) {
         JR2_RDX_PMASK(VTSS_ANA_L3_MSTP_MSTP_LRN_CFG, msti, &pmask);
-        sprintf(buf, "MSTP_LRN_CFG_%u", msti);
+        VTSS_SPRINTF(buf, "MSTP_LRN_CFG_%u", msti);
         jr2_debug_pmask(pr, buf, pmask);
         JR2_RDX_PMASK(VTSS_ANA_L3_MSTP_MSTP_FWD_CFG, msti, &pmask);
-        sprintf(buf, "MSTP_FWD_CFG_%u", msti);
+        VTSS_SPRINTF(buf, "MSTP_FWD_CFG_%u", msti);
         jr2_debug_pmask(pr, buf, pmask);
     }
     pr("\n");
@@ -1662,7 +1661,7 @@ static vtss_rc jr2_debug_mirror(vtss_state_t *vtss_state,
     char buf[32];
 
     for (i = 0; i < 3; i++) {
-        sprintf(buf, "%s Probe", i == JR2_MIRROR_PROBE_RX ? "Rx" : i == JR2_MIRROR_PROBE_TX ? "Tx" : "VLAN");
+        VTSS_SPRINTF(buf, "%s Probe", i == JR2_MIRROR_PROBE_RX ? "Rx" : i == JR2_MIRROR_PROBE_TX ? "Tx" : "VLAN");
         vtss_jr2_debug_reg_header(pr, buf);
         j = QFWD_FRAME_COPY_CFG_MIRROR_PROBE(i);
         vtss_jr2_debug_reg_inst(vtss_state, pr, VTSS_QFWD_SYSTEM_FRAME_COPY_CFG(j),          j, "QFWD:FRAME_COPY_CFG");
@@ -1674,7 +1673,7 @@ static vtss_rc jr2_debug_mirror(vtss_state_t *vtss_state,
 
         jr2_debug_pmask_header(vtss_state, pr, NULL);
         JR2_RDX_PMASK(VTSS_ANA_AC_MIRROR_PROBE_PROBE_PORT_CFG, i, &pmask);
-        sprintf(buf, "PROBE_PORT_CFG_%u", i);
+        VTSS_SPRINTF(buf, "PROBE_PORT_CFG_%u", i);
         jr2_debug_pmask(pr, buf, pmask);
         pr("\n");
     }
@@ -1789,9 +1788,10 @@ static vtss_rc jr2_l2_init(vtss_state_t *vtss_state)
     u32             port, msti;
     u64             port_mask_all = 0xffffffffffffffff;
 
-    /* VLAN: Clear VID 4095 mask, enable VLAN and use default port config */
+    /* VLAN: Clear VID 0 and 4095 mask, enable VLAN and use default port config */
     JR2_WR(VTSS_ANA_L3_COMMON_VLAN_CTRL, 
            VTSS_F_ANA_L3_COMMON_VLAN_CTRL_VLAN_ENA(1));
+    JR2_WRX_PMASK(VTSS_ANA_L3_VLAN_VLAN_MASK_CFG, 0, 0ULL);
     JR2_WRX_PMASK(VTSS_ANA_L3_VLAN_VLAN_MASK_CFG, 4095, 0ULL);
     VTSS_RC(jr2_vlan_mask_apply(vtss_state, 1, port_mask_all));
     for (port = 0; port < VTSS_CHIP_PORTS; port++) {

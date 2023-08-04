@@ -278,7 +278,40 @@ def run cmd, flags = []
     end
 end
 
-def test name
+# Global variable for test summary
+$test_summary_list = []
+
+def test_summary(all = true)
+    test("summary", false) do
+        list = $test_summary_list
+        cnt_total = list.length
+        cnt_err = 0
+        list.each_with_index do |e, i|
+            txt = nil
+            if (e[:status] == "not-ok")
+                cnt_err += 1
+                txt = "Failed "
+            elsif (all)
+                txt = "Success"
+            end
+            if (txt != nil)
+                txt += " [#{i}]"
+                cnt = ((cnt_total - 1).to_s.length - i.to_s.length)
+                cnt.times do
+                    txt += " "
+                end
+                txt += ": "
+                t_i(txt + e[:name])
+            end
+        end
+        t_i("Total : #{cnt_total}")
+        t_i("Ok    : #{cnt_total - cnt_err}")
+        t_i("Errors: #{cnt_err}")
+        $test_summary_list = []
+    end
+end
+
+def test(name, summary = true)
     do_abort = false
     ts_begin = Time.now
 
@@ -320,6 +353,10 @@ def test name
             $global_errors += 1
         else
             attrs["status"] = "ok"
+        end
+
+        if (summary)
+            $test_summary_list << {name: name, status: attrs["status"]}
         end
 
         ts_end = Time.now
@@ -408,6 +445,10 @@ end
 
 def trace level, msg
     xml_tag "trace", msg.to_s, {"level" => level, "ts" => xml_ts(Time.now)}
+end
+
+def t_backtrace e
+    xml_tag "backtrace", e.backtrace.join("\n\t").sub("\n\t", ": #{e}#{e.class ? " (#{e.class})" : ''}\n\t")
 end
 
 def t_n msg

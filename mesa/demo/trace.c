@@ -9,6 +9,7 @@
 #include <libgen.h>
 #include <sys/time.h>
 
+#include <vtss_phy_api.h>
 #include "microchip/ethernet/switch/api.h"
 #include "microchip/ethernet/board/api.h"
 #include "main.h"
@@ -204,6 +205,51 @@ void mscc_appl_trace_printf(const char *mname,
     mscc_appl_trace_vprintf(mname, gname, level, file, line, function, format, args);
     va_end(args);
 }
+
+void mscc_phy_vtrace_printf(mepa_trace_group_t group,
+                            mepa_trace_level_t level,
+                            const char *location,
+                            uint32_t line,
+                            const char *format,
+                            va_list args)
+{
+    mesa_trace_layer_t layer = MESA_TRACE_LAYER_CIL;
+    mesa_trace_group_t grp;
+    mesa_trace_level_t lvl;
+
+    // Map from MEPA to MESA trace group/level
+    grp = (group == MEPA_TRACE_GRP_TS ? MESA_TRACE_GROUP_TS : MESA_TRACE_GROUP_PHY);
+    lvl = (level > MEPA_TRACE_LVL_ERROR ? MESA_TRACE_LEVEL_NONE :
+           level > MEPA_TRACE_LVL_WARNING ? MESA_TRACE_LEVEL_ERROR :
+           level > MEPA_TRACE_LVL_DEBUG ? MESA_TRACE_LEVEL_INFO :
+           level > MEPA_TRACE_LVL_NOISE ? MESA_TRACE_LEVEL_DEBUG :
+           MESA_TRACE_LEVEL_NOISE);
+    if (trace_groups_cil[grp].level >= lvl) {
+        mesa_callout_trace_printf(layer, grp, lvl, "x.c", line, location, format, args);
+    }
+}
+
+void mscc_phy_trace_printf(mepa_trace_group_t group,
+                           mepa_trace_level_t level,
+                           const char *location,
+                           uint32_t line,
+                           const char *format,
+                           ...)
+{
+    va_list args;
+
+    va_start(args, format);
+    mscc_phy_vtrace_printf(group, level, location, line, format, args);
+    va_end(args);
+}
+
+void mscc_mepa_trace_printf(const mepa_trace_data_t *data,
+                            va_list                  args)
+{
+    mscc_phy_vtrace_printf(data->group, data->level, data->location, data->line,
+                           data->format, args);
+}
+
 
 void mscc_appl_trace_vprintf(const char *mname,
                              const char *gname,

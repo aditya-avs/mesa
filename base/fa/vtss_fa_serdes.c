@@ -187,6 +187,7 @@ const char *vtss_serdes_preset_txt(vtss_sd10g28_preset_t pr)
     case VTSS_SD10G28_DAC3M_PVT:   return "DAC3_PVT";
     case VTSS_SD10G28_SR:          return "SR";
     case VTSS_SD10G28_KR:          return "KR";
+    case VTSS_SD10G28_FX100:       return "100FX";
     case VTSS_SD10G28_PRESET_NONE: return "None";
     }
     return "?   ";
@@ -260,9 +261,8 @@ static vtss_rc fa_get_lane_target(u32 type, u32 indx)
 u32 vtss_fa_sd10g28_get_cmu (vtss_state_t *vtss_state, vtss_sd10g28_cmu_t cmu_type, vtss_port_no_t port_no) {
 
     u32 serdes_no;
-    u32 sd_type;
 
-    VTSS_RC(vtss_fa_port2sd(vtss_state, port_no, &serdes_no, &sd_type));
+    serdes_no = vtss_fa_sd_lane_indx(vtss_state, port_no);
 
     if (cmu_type == 0) {
         // Main CMU of FA
@@ -281,7 +281,7 @@ u32 vtss_fa_sd10g28_get_cmu (vtss_state_t *vtss_state, vtss_sd10g28_cmu_t cmu_ty
             return 0;
         } else if (serdes_no < 10 ) {
             return 3;
-        } else if (serdes_no < 16) {
+        } else if (serdes_no < 17) {
             return 6;
         } else if (serdes_no < 19) {
             return 9;
@@ -311,7 +311,7 @@ static void buf_set(char *buf, u32 *u_ptr)
     for (int a = 7; a >= 0; a--) {
         num = u_ptr[a];
         for (int i = 7; i >= 0; i--) {
-            sprintf(buf + strlen(buf), "%d",(num & (1 << i)) >> i);
+            VTSS_SPRINTF(buf + VTSS_STRLEN(buf), "%d",(num & (1 << i)) >> i);
         }
     }
 }
@@ -448,7 +448,7 @@ static vtss_rc fa_port_10g_kr_tap_set(vtss_state_t *vtss_state, const vtss_port_
 {
     u32 sd_indx, sd_type, sd_tgt;
     VTSS_RC(vtss_fa_port2sd(vtss_state, port_no, &sd_indx, &sd_type));
-    sd_tgt = VTSS_TO_SD10G_LANE(sd_indx);
+    sd_tgt = fa_get_lane_target(sd_type, sd_indx);
 
     REG_WRM(VTSS_SD10G_LANE_TARGET_LANE_04(sd_tgt),
             VTSS_F_SD10G_LANE_TARGET_LANE_04_CFG_TAP_DLY_4_0(tap_dly),
@@ -475,7 +475,7 @@ vtss_rc fa_port_10g_kr_tap_get(vtss_state_t *vtss_state, vtss_port_no_t port_no,
     u32 sd_indx = 0, sd_type, sd_tgt, val1, val2;
 
     VTSS_RC(vtss_fa_port2sd(vtss_state, port_no, &sd_indx, &sd_type));
-    sd_tgt = VTSS_TO_SD10G_LANE(sd_indx);
+    sd_tgt = fa_get_lane_target(sd_type, sd_indx);
 
     REG_RD(VTSS_SD10G_LANE_TARGET_LANE_04(sd_tgt), &val1);
     *tap_dly = (u16)VTSS_X_SD10G_LANE_TARGET_LANE_04_CFG_TAP_DLY_4_0(val1);
@@ -497,10 +497,10 @@ vtss_rc fa_port_kr_tap_set(vtss_state_t *vtss_state, const vtss_port_no_t port_n
 {
     u32 port = VTSS_CHIP_PORT(port_no);
 
-    if (VTSS_PORT_IS_10G(port)) {
-        VTSS_RC(fa_port_10g_kr_tap_set(vtss_state, port_no, tap_dly, tap_adv, ampl));
-    } else {
+    if (VTSS_PORT_IS_25G(port)) {
         VTSS_RC(fa_port_25g_kr_tap_set(vtss_state, port_no, tap_dly, tap_adv, ampl));
+    } else {
+        VTSS_RC(fa_port_10g_kr_tap_set(vtss_state, port_no, tap_dly, tap_adv, ampl));
     }
 
     return VTSS_RC_OK;
@@ -511,10 +511,10 @@ vtss_rc fa_port_kr_tap_get(vtss_state_t *vtss_state, const vtss_port_no_t port_n
 {
     u32 port = VTSS_CHIP_PORT(port_no);
 
-    if (VTSS_PORT_IS_10G(port)) {
-        VTSS_RC(fa_port_10g_kr_tap_get(vtss_state, port_no, tap_dly, tap_adv, ampl));
-    } else {
+    if (VTSS_PORT_IS_25G(port)) {
         VTSS_RC(fa_port_25g_kr_tap_get(vtss_state, port_no, tap_dly, tap_adv, ampl));
+    } else {
+        VTSS_RC(fa_port_10g_kr_tap_get(vtss_state, port_no, tap_dly, tap_adv, ampl));
     }
 
     return VTSS_RC_OK;
@@ -710,8 +710,6 @@ static vtss_port_kr_coef_update_t coef2act(u16 frm_in)
     }
 }
 
-
-
 static vtss_port_kr_coef_status_t coef2sts(u16 frm_in)
 {
     u16 action = 0;
@@ -733,10 +731,10 @@ static vtss_port_kr_coef_status_t coef2sts(u16 frm_in)
     return VTSS_COEF_NOT_UPDATED;
 }
 
-static vtss_port_kr_coef_status_t sts2rawsts(vtss_port_kr_coef_type_t tap, vtss_port_kr_coef_status_t status)
+static u16 sts2rawsts(vtss_port_kr_coef_type_t tap, vtss_port_kr_coef_status_t status, u16 sts_out)
 {
     if ((tap == VTSS_COEF_PRESET) || (tap == VTSS_COEF_INIT)) {
-        return ((status << 4) | (status << 2) |  status);
+        return (sts_out);
     } else if (tap == VTSS_COEF_CP1) {
         return (status = status << 4);
     } else if (tap == VTSS_COEF_C0) {
@@ -745,10 +743,9 @@ static vtss_port_kr_coef_status_t sts2rawsts(vtss_port_kr_coef_type_t tap, vtss_
     return status;
 }
 
-
 // GUC algorithm for 10G TxEQ KR tuning
 static vtss_port_kr_status_codes_t fa_coef_status_10g_calc(u32 p, const u16 coef_in,
-                                                           u32 *pcs2pma, u32 *tap_dly, u32 *tap_adv, vtss_port_kr_coef_status_t *status_out, BOOL verify_only)
+                                                           u32 *pcs2pma, u32 *tap_dly, u32 *tap_adv, u16 *status_out, BOOL verify_only)
 {
     u32 dG = 0, dCd = 0, dCa = 0, adv_dly_sum = 99, tap_adv_max = 99;
     int _pcs2pma = *pcs2pma, _tap_dly = *tap_dly, _tap_adv = *tap_adv;
@@ -762,11 +759,13 @@ static vtss_port_kr_status_codes_t fa_coef_status_10g_calc(u32 p, const u16 coef
         _pcs2pma = 192;
         _tap_adv = 0;
         _tap_dly = 0;
+        *status_out = ((VTSS_COEF_UPDATED << 4) | (VTSS_COEF_MAXIMUM << 2) |  VTSS_COEF_UPDATED);
         break;
     case VTSS_COEF_INIT:
         _pcs2pma = 192;
         _tap_adv = 4;
         _tap_dly = 22;
+        *status_out = ((VTSS_COEF_UPDATED << 4) | (VTSS_COEF_UPDATED << 2) |  VTSS_COEF_UPDATED);
         break;
     case VTSS_COEF_CP1:
         if (action == VTSS_COEF_HOLD) {
@@ -832,7 +831,7 @@ static vtss_port_kr_status_codes_t fa_coef_status_10g_calc(u32 p, const u16 coef
             status = VTSS_COEF_MINIMUM;
             sts_code = VTSS_KR_STS_TAP_DLY_ABOVE_31;
         } else if (_tap_adv > tap_adv_max) {
-            status = VTSS_COEF_MINIMUM;
+            status = (action == VTSS_COEF_INCR) ? VTSS_COEF_MAXIMUM : VTSS_COEF_MINIMUM;
             sts_code = VTSS_KR_STS_TAP_ADV_ABOVE_14;
         }
         break;
@@ -881,7 +880,7 @@ static vtss_port_kr_status_codes_t fa_coef_status_10g_calc(u32 p, const u16 coef
             status = VTSS_COEF_MINIMUM;
             sts_code = VTSS_KR_STS_TAP_DLY_ABOVE_31;
         } else if (_tap_adv > tap_adv_max) {
-            status = VTSS_COEF_MINIMUM;
+            status = action == VTSS_COEF_INCR ? VTSS_COEF_MAXIMUM : VTSS_COEF_MINIMUM;
             sts_code = VTSS_KR_STS_TAP_ADV_ABOVE_LIMIT;
         }
 
@@ -1012,7 +1011,7 @@ static vtss_port_kr_status_codes_t fa_coef_status_10g_calc(u32 p, const u16 coef
                _tap_adv+_tap_dly, vtss_kr_status2txt(status), vtss_kr_sts_code2txt(sts_code));
     }
 
-    *status_out = sts2rawsts(tap, status);
+    *status_out = sts2rawsts(tap, status, *status_out);
     *tap_dly = _tap_dly;
     *pcs2pma = _pcs2pma;
     *tap_adv = _tap_adv;
@@ -1022,7 +1021,7 @@ static vtss_port_kr_status_codes_t fa_coef_status_10g_calc(u32 p, const u16 coef
 
 // GUC algorithm for 25G TxEQ KR tuning
 static vtss_port_kr_status_codes_t fa_coef_status_25g_calc(u32 p, const u16 coef_in,
-                                                          u32 *amp_code, u32 *tap_dly, u32 *tap_adv, vtss_port_kr_coef_status_t *status_out, BOOL verify_only)
+                                                          u32 *amp_code, u32 *tap_dly, u32 *tap_adv, u16 *status_out, BOOL verify_only)
 {
     int _amp_code = *amp_code, _tap_dly = *tap_dly, _tap_adv = *tap_adv;
     vtss_port_kr_coef_status_t status = VTSS_COEF_UPDATED;
@@ -1035,11 +1034,13 @@ static vtss_port_kr_status_codes_t fa_coef_status_25g_calc(u32 p, const u16 coef
         _amp_code = 80;
         _tap_adv = 0;
         _tap_dly = 0;
+        *status_out = ((VTSS_COEF_UPDATED << 4) | (VTSS_COEF_MAXIMUM << 2) |  VTSS_COEF_UPDATED);
         break;
     case VTSS_COEF_INIT:
         _amp_code = 80;
         _tap_adv = 4;
         _tap_dly = 22;
+        *status_out = ((VTSS_COEF_UPDATED << 4) | (VTSS_COEF_UPDATED << 2) |  VTSS_COEF_UPDATED);
         break;
     case VTSS_COEF_CP1:
         if (action == VTSS_COEF_HOLD) {
@@ -1123,7 +1124,8 @@ static vtss_port_kr_status_codes_t fa_coef_status_25g_calc(u32 p, const u16 coef
                _tap_adv+_tap_dly, vtss_kr_status2txt(status), vtss_kr_sts_code2txt(sts_code));
     }
 
-    *status_out = sts2rawsts(tap, status);
+    *status_out = sts2rawsts(tap, status, *status_out);
+
     *tap_dly    = _tap_dly;
     *amp_code   = _amp_code;
     *tap_adv    = _tap_adv;
@@ -1134,7 +1136,7 @@ static vtss_port_kr_status_codes_t fa_coef_status_25g_calc(u32 p, const u16 coef
 //BOOL c0_done[VTSS_PORTS] = {0};
 // GUC algorithm for 25G @ 10G TxEQ KR tuning
 static vtss_port_kr_status_codes_t fa_coef_status_25g_10g_calc(vtss_state_t *vtss_state, u32 p, const u16 coef_in,
-                                                              u32 *amp_code, u32 *tap_dly, u32 *tap_adv, vtss_port_kr_coef_status_t *status_out, BOOL verify_only)
+                                                              u32 *amp_code, u32 *tap_dly, u32 *tap_adv, u16 *status_out, BOOL verify_only)
 {
     u32 dG = 0, dCd = 0, dCa = 0, adv_dly_sum = 99, tap_adv_max = 99;
     int _amp_code = *amp_code, _tap_dly = *tap_dly, _tap_adv = *tap_adv;
@@ -1147,15 +1149,17 @@ static vtss_port_kr_status_codes_t fa_coef_status_25g_10g_calc(vtss_state_t *vts
     switch (tap) {
     case VTSS_COEF_PRESET:
         _amp_code = 80;
-        _tap_adv = 4;
-        _tap_dly = 22;
+        _tap_adv = 0;
+        _tap_dly = 0;
         *c0_done = FALSE;
+        *status_out = ((VTSS_COEF_UPDATED << 4) | (VTSS_COEF_MAXIMUM << 2) | VTSS_COEF_UPDATED);
         break;
     case VTSS_COEF_INIT:
         _amp_code = 80;
         _tap_adv = 4;
         _tap_dly = 22;
         *c0_done = FALSE;
+        *status_out = ((VTSS_COEF_UPDATED << 4) | (VTSS_COEF_UPDATED << 2) | VTSS_COEF_UPDATED);
         break;
     case VTSS_COEF_CP1:
         if (action == VTSS_COEF_HOLD) {
@@ -1248,7 +1252,7 @@ static vtss_port_kr_status_codes_t fa_coef_status_25g_10g_calc(vtss_state_t *vts
             status = VTSS_COEF_MINIMUM;
             sts_code = VTSS_KR_STS_TAP_DLY_ABOVE_31;
         } else if (_tap_adv > tap_adv_max) {
-            status = VTSS_COEF_MINIMUM;
+            status = (action == VTSS_COEF_INCR) ? VTSS_COEF_MAXIMUM : VTSS_COEF_MINIMUM;
             sts_code = VTSS_KR_STS_TAP_ADV_ABOVE_LIMIT;
         } else if ((_tap_adv + _tap_dly) > adv_dly_sum) {
             status = VTSS_COEF_MINIMUM;
@@ -1329,7 +1333,6 @@ static vtss_port_kr_status_codes_t fa_coef_status_25g_10g_calc(vtss_state_t *vts
             sts_code = VTSS_KR_STS_TAP_DLY_ABOVE_31;
         } else if ((_tap_adv + _tap_dly) > adv_dly_sum) {
             status = (action == VTSS_COEF_INCR) ? VTSS_COEF_MAXIMUM : VTSS_COEF_MINIMUM; // Workaround
-//            status = VTSS_COEF_MINIMUM;
             sts_code = VTSS_KR_STS_ADV_DLY_ABOVE_LIMIT;
         }
         break;
@@ -1423,10 +1426,10 @@ static vtss_port_kr_status_codes_t fa_coef_status_25g_10g_calc(vtss_state_t *vts
             status = VTSS_COEF_MAXIMUM;
             sts_code = VTSS_KR_STS_TAP_ADV_BELOW_0;
         } else if ((_tap_adv + _tap_dly) > adv_dly_sum) {
-            status = (action == VTSS_COEF_INCR) ? VTSS_COEF_MAXIMUM : VTSS_COEF_MINIMUM; // Workaround
+            status = (action == VTSS_COEF_INCR) ? VTSS_COEF_MAXIMUM : VTSS_COEF_MINIMUM;
             sts_code = VTSS_KR_STS_ADV_DLY_ABOVE_LIMIT;
         } else if (_tap_adv > tap_adv_max) {
-            status = VTSS_COEF_MINIMUM;
+            status = (action == VTSS_COEF_INCR) ? VTSS_COEF_MAXIMUM : VTSS_COEF_MINIMUM;
             sts_code = VTSS_KR_STS_TAP_ADV_ABOVE_LIMIT;
         }
 
@@ -1465,15 +1468,16 @@ static vtss_port_kr_status_codes_t fa_coef_status_25g_10g_calc(vtss_state_t *vts
             sts_code = VTSS_KR_STS_ADV_DLY_OUT_OF_RANGE;
         }
     }
-
-    if (((action == VTSS_COEF_INCR) && (status == VTSS_COEF_MINIMUM)) ||
-        ((action == VTSS_COEF_DECR) && (status == VTSS_COEF_MAXIMUM))) {
-        VTSS_E("FAILURE! p:%d Tap:%s Action:%s amp_code=%d->%d tap_dly=%d->%d tap_adv=%d->%d (dly+adv=%d) --> Status:%s (Reason:%s) (verify:%d)\n",
-               p, vtss_kr_coef2txt(tap), vtss_kr_upd2txt(action), *amp_code, _amp_code,*tap_dly,_tap_dly,*tap_adv,_tap_adv,
-               _tap_adv+_tap_dly, vtss_kr_status2txt(status), vtss_kr_sts_code2txt(sts_code), verify_only);
+    if (tap == VTSS_COEF_CP1 || tap == VTSS_COEF_C0 || tap == VTSS_COEF_CM1) {
+        if (((action == VTSS_COEF_INCR) && (status == VTSS_COEF_MINIMUM)) ||
+            ((action == VTSS_COEF_DECR) && (status == VTSS_COEF_MAXIMUM))) {
+            VTSS_E("FAILURE! p:%d Tap:%s Action:%s amp_code=%d->%d tap_dly=%d->%d tap_adv=%d->%d (dly+adv=%d) --> Status:%s (Reason:%s) (verify:%d)\n",
+                   p, vtss_kr_coef2txt(tap), vtss_kr_upd2txt(action), *amp_code, _amp_code,*tap_dly,_tap_dly,*tap_adv,_tap_adv,
+                   _tap_adv+_tap_dly, vtss_kr_status2txt(status), vtss_kr_sts_code2txt(sts_code), verify_only);
+        }
     }
 
-    *status_out = sts2rawsts(tap, status);
+    *status_out = sts2rawsts(tap, status, *status_out);
     *tap_dly    = _tap_dly;
     *amp_code   = _amp_code;
     *tap_adv    = _tap_adv;
@@ -1487,15 +1491,16 @@ vtss_rc fa_kr_coef2status(vtss_state_t *vtss_state,
                           vtss_kr_status_results_t *const status_out)
 {
     u32 port = VTSS_CHIP_PORT(port_no);
-    vtss_port_kr_coef_status_t sts_tmp = VTSS_COEF_NOT_UPDATED;
+    u16 sts_tmp = 0;
     vtss_port_kr_temp_storage_t *st = &vtss_state->port.kr_store[port_no];
     vtss_port_kr_status_codes_t int_status;
+    vtss_port_kr_conf_t *kr = &vtss_state->port.kr_conf[port_no];
     u32 amplitude = st->amplitude, tap_dly=st->tap_dly, tap_adv=st->tap_adv;
 
     // 1. Calculate next settings based on coeficent request INIT/PRESET/INCR/DECR
     // 2. Verify calculated settings
-    // 3. If status == UPDATED: Apply calculated settings to the Tx-EQ
-    // 4. Return Status report
+    // 3. If PRESET/INIT or status == UPDATED: Apply calculated settings to the Tx-EQ
+    // 4. Return Status report incl actual TxEq settings
 
     if (VTSS_PORT_IS_10G(port)) { // 10GSD @ 10G
         int_status = fa_coef_status_10g_calc(port_no, coef_in, &amplitude, &tap_dly, &tap_adv, &sts_tmp, 0); // 10G Calculate
@@ -1516,33 +1521,21 @@ vtss_rc fa_kr_coef2status(vtss_state_t *vtss_state,
         }
     }
 
-    if (coef2act(coef_in) != VTSS_COEF_HOLD) {
-        if (raw_sts2enum(sts_tmp) == VTSS_COEF_MINIMUM ||
-            raw_sts2enum(sts_tmp) == VTSS_COEF_MAXIMUM ||
-            raw_sts2enum(sts_tmp) == VTSS_COEF_UPDATED) {
-            /* if (port_no == 13) { */
-            /* printf("p:%d Tap:%s Action:%s. Amp_code:%d->%d, Tap_dly:%d->%d, Tap_adv:%d->%d, (tap_dly+tap_adv=%d) --> Status:%s (Reason:%s)\n", */
-            /*        port_no, vtss_kr_coef2txt(coef2tap(coef_in)), vtss_kr_upd2txt(coef2act(coef_in)), */
-            /*        st->amplitude, amplitude, */
-            /*        st->tap_dly, tap_dly, */
-            /*        st->tap_adv, tap_adv, */
-            /*        tap_adv + tap_dly, */
-            /*        raw_sts2txt(sts_tmp), vtss_kr_sts_code2txt(int_status)); */
-            /* } */
-        }
-    }
-
-    if (coef2sts(sts_tmp) == VTSS_COEF_UPDATED) {
+    if (coef2sts(sts_tmp) == VTSS_COEF_UPDATED ||
+        coef2tap(coef_in) == VTSS_COEF_PRESET ||
+        coef2tap(coef_in) == VTSS_COEF_INIT) {
         st->amplitude = amplitude;
         st->tap_dly = tap_dly;
         st->tap_adv = tap_adv;
-        VTSS_RC(fa_port_kr_tap_set(vtss_state, port_no, tap_dly, tap_adv, amplitude)); // Apply the settings
+        if (!kr->train.no_eq_apply) { // for debug support
+            VTSS_RC(fa_port_kr_tap_set(vtss_state, port_no, tap_dly, tap_adv, amplitude)); // Apply the settings
+        }
     }
-
     status_out->status = sts_tmp; // Return status report
-    status_out->cm1 = tap_adv;
+    status_out->cm1 = tap_adv; // Also return the EQ values for debug purposes
     status_out->cp1 = tap_dly;
     status_out->c0 = amplitude;
+
     return VTSS_RC_OK;
 }
 
@@ -1611,6 +1604,61 @@ vtss_rc fa_serdes_40b_mode(vtss_state_t *vtss_state, u32 port_no)
     return VTSS_RC_OK;
 }
 
+vtss_rc fa_serdes_tx_eq_tune(vtss_state_t *vtss_state, const vtss_debug_printf_t pr,
+                             u32 port_no, vtss_port_kr_coef_type_t coef, vtss_port_kr_coef_update_t action)
+{
+    vtss_kr_status_results_t status_out;
+    u16 coef_in = 0;
+    u16 action_sts = 0;
+    char action_out[20];
+
+    if (coef == VTSS_COEF_PRESET) {
+        coef_in = BT(13);
+    } else if (coef == VTSS_COEF_INIT) {
+        coef_in = BT(12);
+    } else if ((coef == VTSS_COEF_CM1) && (action == VTSS_COEF_INCR)) {
+          coef_in = 0x1;
+    } else if ((coef == VTSS_COEF_CM1) && (action == VTSS_COEF_DECR)) {
+          coef_in = 0x2;
+    } else if ((coef == VTSS_COEF_C0) && (action == VTSS_COEF_INCR)) {
+          coef_in = 2 << 0x1;
+    } else if ((coef == VTSS_COEF_C0) && (action == VTSS_COEF_DECR)) {
+          coef_in = 2 << 0x2;
+    } else if ((coef == VTSS_COEF_CP1) && (action == VTSS_COEF_INCR)) {
+          coef_in = 4 << 0x1;
+    } else if ((coef == VTSS_COEF_CP1) && (action == VTSS_COEF_DECR)) {
+          coef_in = 4 << 0x2;
+    } else {
+        pr("unsupported choice\n");
+        return VTSS_RC_OK;
+    }
+
+    fa_kr_coef2status(vtss_state, port_no, coef_in, &status_out);
+
+    if ((status_out.status & 0x3) > 0) {
+        action_sts = status_out.status & 0x3;
+    } else if ((status_out.status & 0xc) > 0) {
+        action_sts = (status_out.status >> 2) & 3;
+    } else if ((status_out.status & 0x30) > 0 ) {
+        action_sts = (status_out.status >> 4) & 3;
+    } else {
+        action_sts = 0;
+    }
+
+    if (action_sts == 0) {
+        VTSS_SPRINTF(action_out, "NOT_UPDATED");
+    } else if (action_sts == 1) {
+        VTSS_SPRINTF(action_out, "UPDATED");
+    } else if (action_sts == 2) {
+        VTSS_SPRINTF(action_out, "MIN");
+    } else if (action_sts == 3) {
+        VTSS_SPRINTF(action_out, "MAX");
+    }
+    pr("Results: %s [CM(tap_adv):%d CP(tap_dly):%d C0(amp):%d]\n", action_out, status_out.cm1, status_out.cp1, status_out.c0);
+
+    return VTSS_RC_OK;
+}
+
 
 #endif /* VTSS_FEATURE_PORT_KR_IRQ */
 
@@ -1622,7 +1670,7 @@ static vtss_rc fa_port_kr_square_wave(vtss_state_t *vtss_state, const vtss_debug
     VTSS_RC(vtss_fa_port2sd(vtss_state, port_no, &indx, &type));
     sd_tgt = fa_get_lane_target(type, indx);
 
-    if (type == FA_SERDES_TYPE_10G) {
+    if (type == FA_SERDES_TYPE_6G || type == FA_SERDES_TYPE_10G) {
         // User define square wave
         REG_WR(VTSS_SD10G_LANE_TARGET_LANE_96(sd_tgt), 0xAA);
         REG_WR(VTSS_SD10G_LANE_TARGET_LANE_97(sd_tgt), 0xAA);
@@ -1734,15 +1782,14 @@ static vtss_rc fa_serdes_dfe_set(vtss_state_t *vtss_state, const vtss_debug_prin
     VTSS_RC(vtss_fa_port2sd(vtss_state, port_no, &indx, &type));
     sd_tgt = fa_get_lane_target(type, indx);
     if (type == FA_SERDES_TYPE_6G) {
-        pr("6G serdes Not supported\n");
-        return VTSS_RC_OK;
+        sd_lane_tgt = VTSS_TO_SD_LANE(indx);
     } else if (type == FA_SERDES_TYPE_10G) {
         sd_lane_tgt = VTSS_TO_SD_LANE(indx+VTSS_SERDES_10G_START);
     } else {
         sd_lane_tgt = VTSS_TO_SD_LANE(indx+VTSS_SERDES_25G_START);
     }
 
-    if (type == FA_SERDES_TYPE_10G) {
+    if (type == FA_SERDES_TYPE_6G || type == FA_SERDES_TYPE_10G) {
         REG_WRM(VTSS_SD10G_LANE_TARGET_LANE_23(sd_tgt),
                 VTSS_F_SD10G_LANE_TARGET_LANE_23_CFG_EN_DFEDIG(ena) |
                 VTSS_F_SD10G_LANE_TARGET_LANE_23_CFG_DFECK_EN(ena) |
@@ -1792,7 +1839,7 @@ static vtss_rc fa_serdes_dfe_set(vtss_state_t *vtss_state, const vtss_debug_prin
         REG_WRM_SET(VTSS_SD25G_TARGET_LANE_0D(sd_tgt),
                     VTSS_M_SD25G_TARGET_LANE_0D_LN_CFG_DFECK_EN);
         REG_WRM(VTSS_SD25G_TARGET_LANE_1C(sd_tgt),
-                VTSS_F_SD25G_TARGET_LANE_1C_LN_CFG_DFE_PD(ena),
+                VTSS_F_SD25G_TARGET_LANE_1C_LN_CFG_DFE_PD(!ena),
                 VTSS_M_SD25G_TARGET_LANE_1C_LN_CFG_DFE_PD);
         REG_WRM(VTSS_SD25G_TARGET_LANE_0F(sd_tgt),
                 VTSS_F_SD25G_TARGET_LANE_0F_LN_CFG_DFETAP_EN_5_1(ena ? 0x1F : 0),
@@ -1870,7 +1917,7 @@ static vtss_rc fa_serdes_dfe_read(vtss_state_t *vtss_state, const vtss_debug_pri
     VTSS_RC(vtss_fa_port2sd(vtss_state, port_no, &indx, &type));
     sd_tgt = fa_get_lane_target(type, indx);
 
-    if (type == FA_SERDES_TYPE_10G) {
+    if (type == FA_SERDES_TYPE_6G || type == FA_SERDES_TYPE_10G) {
         REG_RD(VTSS_SD10G_LANE_TARGET_LANE_C5(sd_tgt), &val);
         pr("ln_h1 (max 0x1F)  :0x%x\n", val);
         REG_RD(VTSS_SD10G_LANE_TARGET_LANE_C6(sd_tgt), &val);
@@ -1911,10 +1958,10 @@ static vtss_rc fa_serdes_vga_adjust(vtss_state_t *vtss_state, const vtss_debug_p
     sd_tgt = fa_get_lane_target(type, indx);
 
     if (pr) {
-        pr("Adjust %s VGA\n",type == FA_SERDES_TYPE_10G ? "10G" : "25G");
+        pr("Adjust %s VGA\n",type == FA_SERDES_TYPE_10G ? "10G" : type == FA_SERDES_TYPE_6G ? "6G" : "25G");
     }
 
-    if (type == FA_SERDES_TYPE_10G) {
+    if (type == FA_SERDES_TYPE_6G || type == FA_SERDES_TYPE_10G) {
         int cfg_eq_res = 0xf;
         u32 cfg_eq_res_best;
 
@@ -1988,23 +2035,21 @@ static vtss_rc fa_serdes_eqr_adjust(vtss_state_t *vtss_state, const vtss_debug_p
     VTSS_RC(vtss_fa_port2sd(vtss_state, port_no, &indx, &type));
     sd_tgt = fa_get_lane_target(type, indx);
 
-    if (type == FA_SERDES_TYPE_10G) {
+    if (type == FA_SERDES_TYPE_6G || type == FA_SERDES_TYPE_10G) {
         REG_RD(VTSS_SD10G_LANE_TARGET_LANE_2F(sd_tgt), &vga_ctrl_best);
         vga_ctrl_best = VTSS_F_SD10G_LANE_TARGET_LANE_2F_CFG_VGA_CTRL_3_0(vga_ctrl_best),
         cfg_vga_ctrl = 0x8;
-    } else if (type == FA_SERDES_TYPE_25G) {
+    } else {
         REG_RD(VTSS_SD25G_TARGET_LANE_22(sd_tgt), &vga_ctrl_best);
         vga_ctrl_best = VTSS_F_SD25G_TARGET_LANE_22_LN_CFG_EQR_FORCE_3_0(vga_ctrl_best);
         cfg_vga_ctrl = 0x4;
-    } else {
-        return VTSS_RC_ERROR;
     }
 
     if (pr)
-        pr("Adjust %s EQR, start from %d :\n",type == FA_SERDES_TYPE_10G ? "10G" : "25G", cfg_vga_ctrl);
+        pr("Adjust %s EQR, start from %d :\n",type == FA_SERDES_TYPE_10G ? "10G" : type == FA_SERDES_TYPE_6G ? "6G" : "25G", cfg_vga_ctrl);
 
     while (cfg_vga_ctrl <= 15) {
-        if (type == FA_SERDES_TYPE_10G) {
+        if (type == FA_SERDES_TYPE_6G || type == FA_SERDES_TYPE_10G) {
             REG_WRM(VTSS_SD10G_LANE_TARGET_LANE_2F(sd_tgt),
                     VTSS_F_SD10G_LANE_TARGET_LANE_2F_CFG_VGA_CTRL_3_0(cfg_vga_ctrl),
                     VTSS_M_SD10G_LANE_TARGET_LANE_2F_CFG_VGA_CTRL_3_0);
@@ -2026,7 +2071,7 @@ static vtss_rc fa_serdes_eqr_adjust(vtss_state_t *vtss_state, const vtss_debug_p
         cfg_vga_ctrl++;
     }
 
-    if (type == FA_SERDES_TYPE_10G) {
+    if (type == FA_SERDES_TYPE_6G || type == FA_SERDES_TYPE_10G) {
         REG_WRM(VTSS_SD10G_LANE_TARGET_LANE_2F(sd_tgt),
                 VTSS_F_SD10G_LANE_TARGET_LANE_2F_CFG_VGA_CTRL_3_0(vga_ctrl_best),
                 VTSS_M_SD10G_LANE_TARGET_LANE_2F_CFG_VGA_CTRL_3_0);
@@ -2052,26 +2097,24 @@ static vtss_rc fa_serdes_eqc_adjust(vtss_state_t *vtss_state, const vtss_debug_p
     VTSS_RC(vtss_fa_port2sd(vtss_state, port_no, &indx, &type));
     sd_tgt = fa_get_lane_target(type, indx);
 
-    if (type == FA_SERDES_TYPE_10G) {
+    if (type == FA_SERDES_TYPE_6G || type == FA_SERDES_TYPE_10G) {
         REG_RD(VTSS_SD10G_LANE_TARGET_LANE_0E(sd_tgt), &cfg_eqc_force_best);
         cfg_eqc_force_best = VTSS_X_SD10G_LANE_TARGET_LANE_0E_CFG_EQC_FORCE_3_0(cfg_eqc_force_best),
         cfg_eqc_force = 0xA;
-    } else if (type == FA_SERDES_TYPE_25G) {
+    } else {
         REG_RD(VTSS_SD25G_TARGET_LANE_1C(sd_tgt), &cfg_eqc_force_best);
         cfg_eqc_force_best = VTSS_X_SD25G_TARGET_LANE_1C_LN_CFG_EQC_FORCE_3_0(cfg_eqc_force_best);
         cfg_eqc_force = 0x8;
-    } else {
-        return VTSS_RC_ERROR;
     }
 
     if (pr)
-        pr("Adjust %s EQC, start from %d :\n",type == FA_SERDES_TYPE_10G ? "10G" : "25G", cfg_eqc_force);
+        pr("Adjust %s EQC, start from %d :\n",type == FA_SERDES_TYPE_10G ? "10G" : type == FA_SERDES_TYPE_6G ? "6G" : "25G", cfg_eqc_force);
 
 
 
     while (cfg_eqc_force <= 15) {
 
-        if (type == FA_SERDES_TYPE_10G) {
+        if (type == FA_SERDES_TYPE_6G || type == FA_SERDES_TYPE_10G) {
             REG_WRM(VTSS_SD10G_LANE_TARGET_LANE_0E(sd_tgt),
                     VTSS_F_SD10G_LANE_TARGET_LANE_0E_CFG_EQC_FORCE_3_0(cfg_eqc_force),
                     VTSS_M_SD10G_LANE_TARGET_LANE_0E_CFG_EQC_FORCE_3_0);
@@ -2093,7 +2136,7 @@ static vtss_rc fa_serdes_eqc_adjust(vtss_state_t *vtss_state, const vtss_debug_p
         cfg_eqc_force++;
     }
 
-    if (type == FA_SERDES_TYPE_10G) {
+    if (type == FA_SERDES_TYPE_6G || type == FA_SERDES_TYPE_10G) {
         REG_WRM(VTSS_SD10G_LANE_TARGET_LANE_0E(sd_tgt),
                 VTSS_F_SD10G_LANE_TARGET_LANE_0E_CFG_EQC_FORCE_3_0(cfg_eqc_force_best),
                 VTSS_M_SD10G_LANE_TARGET_LANE_0E_CFG_EQC_FORCE_3_0);
@@ -2121,22 +2164,20 @@ vtss_rc fa_serdes_ctle_adjust(vtss_state_t *vtss_state, const vtss_debug_printf_
     sd_tgt = fa_get_lane_target(type, indx);
 
     if (pr != NULL || ro) {
-        if (type == FA_SERDES_TYPE_10G) {
+        if (type == FA_SERDES_TYPE_6G || type == FA_SERDES_TYPE_10G) {
             REG_RD(VTSS_SD10G_LANE_TARGET_LANE_0B(sd_tgt), &cfg_eq_res);
             cfg_eq_res = VTSS_X_SD10G_LANE_TARGET_LANE_0B_CFG_EQ_RES_3_0(cfg_eq_res);
             REG_RD(VTSS_SD10G_LANE_TARGET_LANE_2F(sd_tgt), &cfg_vga_ctrl);
             cfg_vga_ctrl = VTSS_X_SD10G_LANE_TARGET_LANE_2F_CFG_VGA_CTRL_3_0(cfg_vga_ctrl);
             REG_RD(VTSS_SD10G_LANE_TARGET_LANE_0E(sd_tgt), &cfg_eqc_force);
             cfg_eqc_force = VTSS_X_SD10G_LANE_TARGET_LANE_0E_CFG_EQC_FORCE_3_0(cfg_eqc_force);
-        } else if (type == FA_SERDES_TYPE_25G) {
+        } else {
             REG_RD(VTSS_SD25G_TARGET_LANE_21(sd_tgt), &cfg_eq_res);
             cfg_eq_res = VTSS_X_SD25G_TARGET_LANE_21_LN_CFG_VGA_CTRL_BYP_4_0(cfg_eq_res);
             REG_RD(VTSS_SD25G_TARGET_LANE_22(sd_tgt), &cfg_vga_ctrl);
             cfg_vga_ctrl = VTSS_X_SD25G_TARGET_LANE_22_LN_CFG_EQR_FORCE_3_0(cfg_vga_ctrl);
             REG_RD(VTSS_SD25G_TARGET_LANE_1C(sd_tgt), &cfg_eqc_force);
             cfg_eqc_force = VTSS_X_SD25G_TARGET_LANE_1C_LN_CFG_EQC_FORCE_3_0(cfg_eqc_force);
-        } else {
-            return VTSS_RC_ERROR;
         }
         if (ro) {
             *vga = cfg_eq_res;
@@ -2145,7 +2186,7 @@ vtss_rc fa_serdes_ctle_adjust(vtss_state_t *vtss_state, const vtss_debug_printf_
             return VTSS_RC_OK;
         } else {
             fa_kr_eye_height(vtss_state, port_no, 3, &eye_height);
-            pr("Before %s CTLE tuning:\n", type == FA_SERDES_TYPE_10G ? "10G" : "25G");
+            pr("Before %s CTLE tuning:\n", type == FA_SERDES_TYPE_10G ? "10G" : type == FA_SERDES_TYPE_6G ? "6G" : "25G");
             pr("VGA               :%d\n",cfg_eq_res);
             pr("EQR               :%d\n",cfg_vga_ctrl);
             pr("EQC               :%d\n",cfg_eqc_force);
@@ -2162,7 +2203,7 @@ vtss_rc fa_serdes_ctle_adjust(vtss_state_t *vtss_state, const vtss_debug_printf_
         return VTSS_RC_OK;
     }
 
-    if (type == FA_SERDES_TYPE_10G) {
+    if (type == FA_SERDES_TYPE_6G || type == FA_SERDES_TYPE_10G) {
         REG_RD(VTSS_SD10G_LANE_TARGET_LANE_0B(sd_tgt), &cfg_eq_res);
         cfg_eq_res = VTSS_X_SD10G_LANE_TARGET_LANE_0B_CFG_EQ_RES_3_0(cfg_eq_res);
         REG_RD(VTSS_SD10G_LANE_TARGET_LANE_2F(sd_tgt), &cfg_vga_ctrl);
@@ -2179,7 +2220,7 @@ vtss_rc fa_serdes_ctle_adjust(vtss_state_t *vtss_state, const vtss_debug_printf_
     }
     fa_kr_eye_height(vtss_state, port_no, 3, &eye_height);
 
-    pr("After %s CTLE tuning:\n", type == FA_SERDES_TYPE_10G ? "10G" : "25G");
+    pr("After %s CTLE tuning:\n", type == FA_SERDES_TYPE_10G ? "10G" : type == FA_SERDES_TYPE_6G ? "6G" : "25G");
     pr("VGA               :%d\n",cfg_eq_res);
     pr("EQR               :%d\n",cfg_vga_ctrl);
     pr("EQC               :%d\n",cfg_eqc_force);
@@ -2197,7 +2238,7 @@ static vtss_rc fa_serdes_ctle_read(vtss_state_t *vtss_state, const vtss_debug_pr
     VTSS_RC(vtss_fa_port2sd(vtss_state, port_no, &indx, &type));
     sd_tgt = fa_get_lane_target(type, indx);
 
-    if (type == FA_SERDES_TYPE_10G) {
+    if (type == FA_SERDES_TYPE_6G || type == FA_SERDES_TYPE_10G) {
         REG_RD(VTSS_SD10G_LANE_TARGET_LANE_0D(sd_tgt), &val);
         pr("CTLE in manuel mode  :%d\n",VTSS_X_SD10G_LANE_TARGET_LANE_0D_CFG_EQR_BYP(val));
         REG_RD(VTSS_SD10G_LANE_TARGET_LANE_2F(sd_tgt), &val);
@@ -2851,7 +2892,7 @@ vtss_rc fa_debug_serdes_set(vtss_state_t *vtss_state, const vtss_port_no_t port_
     VTSS_RC(vtss_fa_port2sd(vtss_state, port_no, &indx, &sd_type));
     sd_tgt = fa_get_lane_target(sd_type, indx);
     if (sd_type == FA_SERDES_TYPE_6G) {
-        return VTSS_RC_ERROR;
+        sd_lane_tgt = VTSS_TO_SD_LANE(indx);
     } else if (sd_type == FA_SERDES_TYPE_10G) {
         sd_lane_tgt = VTSS_TO_SD_LANE(indx+VTSS_SERDES_10G_START);
     } else {
@@ -2860,7 +2901,7 @@ vtss_rc fa_debug_serdes_set(vtss_state_t *vtss_state, const vtss_port_no_t port_
 
     if (conf->debug_type == VTSS_SERDES_DFE_PRM) {
 
-        if (sd_type == FA_SERDES_TYPE_10G) {
+        if (sd_type == FA_SERDES_TYPE_6G || sd_type == FA_SERDES_TYPE_10G) {
             REG_WRM(VTSS_SD10G_LANE_TARGET_LANE_1D(sd_tgt),
                     VTSS_F_SD10G_LANE_TARGET_LANE_1D_CFG_DFE_BYP_H1_4_0(conf->serdes_prm[0]),
                     VTSS_M_SD10G_LANE_TARGET_LANE_1D_CFG_DFE_BYP_H1_4_0);
@@ -3133,123 +3174,61 @@ static vtss_rc fa_serdes_10g_eye_setup(vtss_state_t *vtss_state,
    return rc;
 }
 
-vtss_rc fa_serdes_tx_eq_tune(vtss_state_t *vtss_state, const vtss_debug_printf_t pr,
-                             u32 port_no, vtss_port_kr_coef_type_t coef, vtss_port_kr_coef_update_t action)
-{
-    vtss_kr_status_results_t status_out;
-    u16 coef_in = 0;
-    u16 action_sts = 0;
-    char action_out[20];
-
-    if (coef == VTSS_COEF_PRESET) {
-        coef_in = BT(13);
-    } else if (coef == VTSS_COEF_INIT) {
-        coef_in = BT(12);
-    } else if ((coef == VTSS_COEF_CM1) && (action == VTSS_COEF_INCR)) {
-          coef_in = 0x1;
-    } else if ((coef == VTSS_COEF_CM1) && (action == VTSS_COEF_DECR)) {
-          coef_in = 0x2;
-    } else if ((coef == VTSS_COEF_C0) && (action == VTSS_COEF_INCR)) {
-          coef_in = 2 << 0x1;
-    } else if ((coef == VTSS_COEF_C0) && (action == VTSS_COEF_DECR)) {
-          coef_in = 2 << 0x2;
-    } else if ((coef == VTSS_COEF_CP1) && (action == VTSS_COEF_INCR)) {
-          coef_in = 4 << 0x1;
-    } else if ((coef == VTSS_COEF_CP1) && (action == VTSS_COEF_DECR)) {
-          coef_in = 4 << 0x2;
-    } else {
-        pr("unsupported choice\n");
-        return VTSS_RC_OK;
-    }
-
-    fa_kr_coef2status(vtss_state, port_no, coef_in, &status_out);
-
-    if ((status_out.status & 0x3) > 0) {
-        action_sts = status_out.status & 0x3;
-    } else if ((status_out.status & 0xc) > 0) {
-        action_sts = (status_out.status >> 2) & 3;
-    } else if ((status_out.status & 0x30) > 0 ) {
-        action_sts = (status_out.status >> 4) & 3;
-    } else {
-        action_sts = 0;
-    }
-
-    if (action_sts == 0) {
-        sprintf(action_out, "NOT_UPDATED");
-    } else if (action_sts == 1) {
-        sprintf(action_out, "UPDATED");
-    } else if (action_sts == 2) {
-        sprintf(action_out, "MIN");
-    } else if (action_sts == 3) {
-        sprintf(action_out, "MAX");
-    }
-    pr("Results: %s [CM(tap_adv):%d CP(tap_dly):%d C0(amp):%d]\n", action_out, status_out.cm1, status_out.cp1, status_out.c0);
-
-    return VTSS_RC_OK;
-}
-
-
 vtss_rc fa_debug_chip_serdes(vtss_state_t *vtss_state,
                              const vtss_debug_printf_t pr,
                              const vtss_debug_info_t   *const info,
                              vtss_port_no_t port_no)
 {
-    u32            port, indx = 0, sd_type = 0, ret_val, sd_indx;
-    char           buf[100] = {0};
-    char           buf2[100] = {0};
-    char           buf3[100] = {0};
-    vtss_port_kr_coef_type_t coef;
-    vtss_port_kr_coef_update_t action;
-
-    port = VTSS_CHIP_PORT(port_no);
+    u32  indx = 0, sd_type = 0, ret_val;
+    char buf[100]  = {0}, buf1[100] = {0}, buf2[100] = {0}, buf3[20]  = {0};
+    u32  sd_indx = vtss_fa_sd_lane_indx(vtss_state, port_no);
+    u32  port = VTSS_CHIP_PORT(port_no);
 
     (void)vtss_fa_port2sd(vtss_state, port_no, &indx, &sd_type);
     if (sd_type == FA_SERDES_TYPE_10G) {
-        sd_indx = indx + VTSS_SERDES_10G_START;
-        sprintf(buf3,"10G_SD_%d",indx);
+        VTSS_SPRINTF(buf3,"(10G_SD_%d)",indx);
     } else if (sd_type == FA_SERDES_TYPE_25G) {
-        sd_indx = indx + VTSS_SERDES_25G_START;
-        sprintf(buf3,"25G_SD_%d",indx);
+        VTSS_SPRINTF(buf3,"(25G_SD_%d)",indx);
     } else {
-        sprintf(buf3,"5G_SD_%d",indx);
-        sd_indx = indx;
+        VTSS_SPRINTF(buf3,"(5G_SD_%d)",indx);
     }
     if (vtss_fa_port_is_high_speed(vtss_state, port)) {
         if (sd_type == FA_SERDES_TYPE_10G) {
-            sprintf(buf2,"Serdes preset: %s",vtss_serdes_preset_txt(serdes2preset(vtss_state->port.conf[port_no].serdes.media_type)));
+            VTSS_SPRINTF(buf2,"%-6s : %s",vtss_serdes_if_txt(vtss_state->port.sd28_mode[sd_indx]),
+                    vtss_serdes_preset_txt(serdes2preset(vtss_state->port.conf[port_no].serdes.media_type)));
         } else if (sd_type == FA_SERDES_TYPE_25G) {
-            sprintf(buf2,"Serdes preset: %s",vtss_serdes25g_preset_txt(serdes2preset_25g(vtss_state->port.conf[port_no].serdes.media_type, vtss_state->port.conf[port_no].speed)));
+            VTSS_SPRINTF(buf2,"%-6s : %s",vtss_serdes_if_txt(vtss_state->port.sd28_mode[sd_indx]),
+                    vtss_serdes25g_preset_txt(serdes2preset_25g(vtss_state->port.conf[port_no].serdes.media_type, vtss_state->port.conf[port_no].speed)));
         } else {
-            sprintf(buf2,"Serdes preset: %s",vtss_serdes_preset_txt(serdes2preset(vtss_state->port.serdes_mode[port_no])));
+            VTSS_SPRINTF(buf2,"%-6s : %s",vtss_serdes_if_txt(vtss_state->port.sd28_mode[sd_indx]),
+                    vtss_serdes_preset_txt(serdes2preset(vtss_state->port.serdes_mode[port_no])));
         }
     } else {
-        sprintf(buf2,"Serdes preset: %s",vtss_serdes_preset_txt(serdes2preset(vtss_state->port.conf[port_no].serdes.media_type)));
+        VTSS_SPRINTF(buf2,"%-6s : %s",vtss_serdes_if_txt(vtss_state->port.sd28_mode[sd_indx]),
+                vtss_serdes_preset_txt(serdes2preset(vtss_state->port.conf[port_no].serdes.media_type)));
     }
     if (vtss_fa_port_is_high_speed(vtss_state, port)) {
-        sprintf(buf, "Chip port %u (API %u) Dev%s_%d", port, port_no, VTSS_PORT_IS_25G(port) ? "25G" :  VTSS_PORT_IS_10G(port)\
+        VTSS_SPRINTF(buf, "Chip port %-2u (API %-2u) Dev%s_%d", port, port_no, VTSS_PORT_IS_25G(port) ? "25G" :  VTSS_PORT_IS_10G(port)\
                 ? "10G": VTSS_PORT_IS_5G(port) ? "5G" : "2G5", VTSS_PORT_DEV_INDX(port));
     } else {
-        sprintf(buf, "Chip port %u (API %u) Dev%s_%d", port, port_no, "2G5", port);
+        VTSS_SPRINTF(buf, "Chip port %-2u (API %-2u) Dev%s_%d", port, port_no, "2G5", port);
     }
-    sprintf(buf + strlen(buf)," -> SD%d", sd_indx);
+    VTSS_SPRINTF(buf1,"SD%-2d %s", sd_indx, buf3);
     if (info->action == 1) {
         vtss_fa_debug_reg_header(pr, buf);
     } else {
         if (info->action < 3) {
-            pr("%s (%s) %s\n",buf, buf3, buf2);
+            pr("%-31s -> %-16s %s\n",buf, buf1, buf2);
         }
     }
 
     if (info->action == 1) {
         VTSS_RC(fa_serdes_dump(vtss_state, pr, port_no));
     } else if (info->action >= 2 && info->action <= 4)  {
-        if (VTSS_PORT_IS_10G(VTSS_CHIP_PORT(port_no))) {
+        if (sd_type == FA_SERDES_TYPE_10G || sd_type == FA_SERDES_TYPE_6G) {
             VTSS_RC(fa_serdes_10g_eye_setup(vtss_state, pr, info->action, port_no, &ret_val, 0));
-        } else if (VTSS_PORT_IS_25G(VTSS_CHIP_PORT(port_no))) {
-            VTSS_RC(fa_serdes_25g_eye_setup(vtss_state, pr, info->action, port_no, &ret_val, 0));
         } else {
-            pr("port %d  not supported",port_no);
-            return VTSS_RC_OK;
+            VTSS_RC(fa_serdes_25g_eye_setup(vtss_state, pr, info->action, port_no, &ret_val, 0));
         }
     } else if (info->action == 5) {
         // Read DFE settings
@@ -3280,43 +3259,50 @@ vtss_rc fa_debug_chip_serdes(vtss_state_t *vtss_state,
         VTSS_RC(fa_serdes_eqc_adjust(vtss_state, pr, port_no));
     } else if (info->action == 16) {
         VTSS_RC(fa_serdes_ctle_adjust(vtss_state, pr, port_no, FALSE, NULL, NULL, NULL));
-    } else if (info->action == 20) {
-        pr("Request: INIT\n");
-        coef = VTSS_COEF_INIT;
-        action = 0;
-        fa_serdes_tx_eq_tune(vtss_state, pr, port_no, coef, action);
-    } else if (info->action == 21) {
-        pr("Request: CM DECR\n");
-        coef = VTSS_COEF_CM1;
-        action = VTSS_COEF_DECR;
-        fa_serdes_tx_eq_tune(vtss_state, pr, port_no, coef, action);
-    } else if (info->action == 22) {
-        pr("Request: CM INCR\n");
-        coef = VTSS_COEF_CM1;
-        action = VTSS_COEF_INCR;
-        fa_serdes_tx_eq_tune(vtss_state, pr, port_no, coef, action);
-    } else if (info->action == 23) {
-        pr("Request: CP DECR\n");
-        coef = VTSS_COEF_CP1;
-        action = VTSS_COEF_DECR;
-        fa_serdes_tx_eq_tune(vtss_state, pr, port_no, coef, action);
-    } else if (info->action == 24) {
-        pr("Request: CP INCR\n");
-        coef = VTSS_COEF_CP1;
-        action = VTSS_COEF_INCR;
-        fa_serdes_tx_eq_tune(vtss_state, pr, port_no, coef, action);
-    } else if (info->action == 25) {
-        pr("Request: C0 DECR\n");
-        coef = VTSS_COEF_C0;
-        action = VTSS_COEF_DECR;
-        fa_serdes_tx_eq_tune(vtss_state, pr, port_no, coef, action);
-    } else if (info->action == 26) {
-        pr("Request: C0 INCR\n");
-        coef = VTSS_COEF_C0;
-        action = VTSS_COEF_INCR;
-        fa_serdes_tx_eq_tune(vtss_state, pr, port_no, coef, action);
-    }
+    } else if (info->action >= 20 && info->action <= 26) {
+#if defined(VTSS_FEATURE_PORT_KR_IRQ)
+        vtss_port_kr_coef_type_t coef = VTSS_COEF_INIT;
+        vtss_port_kr_coef_update_t action = 0;
 
+        switch (info->action) {
+        case 20:
+            pr("Request: INIT\n");
+            coef = VTSS_COEF_INIT;
+            action = 0;
+            break;
+        case 21:
+            pr("Request: CM DECR\n");
+            coef = VTSS_COEF_CM1;
+            action = VTSS_COEF_DECR;
+            break;
+        case 22:
+            pr("Request: CM INCR\n");
+            coef = VTSS_COEF_CM1;
+            action = VTSS_COEF_INCR;
+            break;
+        case 23:
+            pr("Request: CP DECR\n");
+            coef = VTSS_COEF_CP1;
+            action = VTSS_COEF_DECR;
+            break;
+        case 24:
+            pr("Request: CP INCR\n");
+            coef = VTSS_COEF_CP1;
+            action = VTSS_COEF_INCR;
+            break;
+        case 25:
+            pr("Request: C0 DECR\n");
+            coef = VTSS_COEF_C0;
+            action = VTSS_COEF_DECR;
+            break;
+        case 26:
+            coef = VTSS_COEF_C0;
+            action = VTSS_COEF_INCR;
+            break;
+        }
+        fa_serdes_tx_eq_tune(vtss_state, pr, port_no, coef, action);
+#endif /* VTSS_FEATURE_PORT_KR_IRQ */
+    }
 
 
     return VTSS_RC_OK;
@@ -3348,7 +3334,7 @@ vtss_rc fa_kr_eye_height(vtss_state_t *vtss_state,
       FA_SERDES_TYPE_10G
       FA_SERDES_TYPE_25G
 
-    To get target of SD_LANE which is numbered 0-33:
+    To get target of SD_LANE which is numbered 0-32:
     target = VTSS_TO_SD_LANE(sd_indx + VTSS_SERDES_xxG_START)
 
     On other targets indx can be used directly:
@@ -3461,6 +3447,20 @@ u32 vtss_fa_port2sd_indx(vtss_state_t *vtss_state, vtss_port_no_t port_no)
     return sd_indx;
 }
 
+/* Returns serdes LANE index 0-33 */
+u32 vtss_fa_sd_lane_indx(vtss_state_t *vtss_state, vtss_port_no_t port_no)
+{
+    u32 indx = 0, type;
+    (void)vtss_fa_port2sd(vtss_state, port_no, &indx, &type);
+    if (type == FA_SERDES_TYPE_6G) {
+        return indx;
+    } else if (type == FA_SERDES_TYPE_10G) {
+        return indx + VTSS_SERDES_10G_START;
+    } else {
+        return(indx + VTSS_SERDES_25G_START);
+    }
+}
+
 
 static vtss_rc fa_sd25g_cfg(vtss_state_t *vtss_state, vtss_port_no_t port_no, vtss_serdes_mode_t mode)
 {
@@ -3474,8 +3474,8 @@ static vtss_rc fa_sd25g_cfg(vtss_state_t *vtss_state, vtss_port_no_t port_no, vt
     }
 #endif
     sd_cfg.chip_name = VTSS_SD25G28_CHIP_ANT;
-    sd_cfg.txinvert = 0;
-    sd_cfg.rxinvert = 1;
+    sd_cfg.txinvert = vtss_state->port.conf[port_no].serdes.tx_invert;
+    sd_cfg.rxinvert = !vtss_state->port.conf[port_no].serdes.rx_invert; /* inverted in substrate */
     sd_cfg.txswing = 240;
     sd_cfg.reg_ctrl = 1;
     sd_cfg.preset = serdes2preset_25g(vtss_state->port.conf[port_no].serdes.media_type, speed);
@@ -3552,8 +3552,8 @@ static vtss_rc fa_sd10g_cfg(vtss_state_t *vtss_state, vtss_port_no_t port_no,  v
 
     sd_cfg.chip_name = VTSS_SD10G28_CHIP_ANT;
     sd_cfg.is_6g =  sd_type == FA_SERDES_TYPE_6G ? TRUE : FALSE;
-    sd_cfg.txinvert = 0;
-    sd_cfg.rxinvert = 1;
+    sd_cfg.txinvert = vtss_state->port.conf[port_no].serdes.tx_invert;
+    sd_cfg.rxinvert = !vtss_state->port.conf[port_no].serdes.rx_invert; /* inverted in substrate */
     sd_cfg.txswing = 240;
     sd_cfg.preset = VTSS_SD10G28_PRESET_NONE;
 
@@ -3608,6 +3608,7 @@ static vtss_rc fa_sd10g_cfg(vtss_state_t *vtss_state, vtss_port_no_t port_no,  v
             break;
         }
         case VTSS_SERDES_MODE_100FX: {
+            sd_cfg.preset = VTSS_SD10G28_FX100;
             sd_cfg.mode = VTSS_SD10G28_MODE_FX100;
             break;
         }
@@ -3628,35 +3629,30 @@ static vtss_rc vtss_fa_sd_board_settings(vtss_state_t *vtss_state, vtss_port_no_
 {
     vtss_rc rc = VTSS_RC_OK;
     vtss_port_speed_t speed = vtss_state->port.conf[port_no].speed;
-    u32 value, sd_tgt;
+    u32 value;
+    u16 tap_dly, tap_adv, ampl;
 
     if (vtss_state->init_conf.serdes_tap_get == NULL) {
         return VTSS_RC_OK; // Not available
     }
 
-    // Get the port post-cursor settings neeeded on the specific board
-    rc = vtss_state->init_conf.serdes_tap_get(NULL, port_no, speed, VTSS_SERDES_POST_CURSOR, &value);
+    rc = fa_port_kr_tap_get(vtss_state, port_no, &tap_dly, &tap_adv, &ampl);
 
-    if (rc == VTSS_RC_OK) {
-        if (sd_type == FA_SERDES_TYPE_25G) {
-            sd_tgt = VTSS_TO_SD25G_LANE(sd_indx);
-            REG_WRM(VTSS_SD25G_TARGET_LANE_07(sd_tgt),
-                    VTSS_F_SD25G_TARGET_LANE_07_LN_CFG_EN_DLY(1),
-                    VTSS_M_SD25G_TARGET_LANE_07_LN_CFG_EN_DLY);
-
-            REG_WRM(VTSS_SD25G_TARGET_LANE_03(sd_tgt),
-                    VTSS_F_SD25G_TARGET_LANE_03_LN_CFG_TAP_DLY_4_0(value),
-                    VTSS_M_SD25G_TARGET_LANE_03_LN_CFG_TAP_DLY_4_0);
-
-        } else {
-            sd_tgt = VTSS_TO_SD10G_LANE(sd_indx);
-            REG_WRM(VTSS_SD10G_LANE_TARGET_LANE_04(sd_tgt),
-                    VTSS_F_SD10G_LANE_TARGET_LANE_04_CFG_TAP_DLY_4_0(value),
-                    VTSS_M_SD10G_LANE_TARGET_LANE_04_CFG_TAP_DLY_4_0);
-        }
+    if (vtss_state->init_conf.serdes_tap_get(NULL, port_no, speed, VTSS_SERDES_POST_CURSOR, &value) == VTSS_RC_OK) {
+        tap_dly = value;
     }
 
-    return VTSS_RC_OK;
+    if (vtss_state->init_conf.serdes_tap_get(NULL, port_no, speed, VTSS_SERDES_PRE_CURSOR, &value) == VTSS_RC_OK) {
+        tap_adv = value;
+    }
+
+    if (vtss_state->init_conf.serdes_tap_get(NULL, port_no, speed, VTSS_SERDES_MAIN_CURSOR, &value) == VTSS_RC_OK) {
+        ampl = value;
+    }
+
+    rc |= fa_port_kr_tap_set(vtss_state,  port_no, tap_dly, tap_adv, ampl);
+
+    return rc;
 }
 
 vtss_rc vtss_fa_sd_cfg(vtss_state_t *vtss_state, vtss_port_no_t port_no,  vtss_serdes_mode_t mode)
@@ -3678,10 +3674,88 @@ vtss_rc vtss_fa_sd_cfg(vtss_state_t *vtss_state, vtss_port_no_t port_no,  vtss_s
     return VTSS_RC_OK;
 }
 
-vtss_rc vtss_fa_cmu_init(vtss_state_t *vtss_state)
+vtss_rc vtss_fa_serdes_init(vtss_state_t *vtss_state)
 {
-    for (u32 cmu = 0; cmu < 14; cmu++) {
-        vtss_ant_sd10g28_cmu_reg_cfg(vtss_state, cmu);
+    u32 sd25g_tgt, sd_lane_tgt, cmu_tgt, cmu_cfg_tgt;
+
+    /* MESA-853: Disable reference clock termination on 25G Serdeses */
+    for (u32 p = 0; p < 8; p++) {
+        sd25g_tgt = VTSS_TO_SD25G_LANE(p);
+        sd_lane_tgt = VTSS_TO_SD_LANE(VTSS_SERDES_25G_START + p);
+
+        REG_WRM(VTSS_SD25G_CFG_TARGET_SD_LANE_CFG(sd_lane_tgt),
+                VTSS_F_SD25G_CFG_TARGET_SD_LANE_CFG_EXT_CFG_RST(1),
+                VTSS_M_SD25G_CFG_TARGET_SD_LANE_CFG_EXT_CFG_RST);
+
+        REG_WRM(VTSS_SD25G_CFG_TARGET_SD_LANE_CFG(sd_lane_tgt),
+                VTSS_F_SD25G_CFG_TARGET_SD_LANE_CFG_EXT_CFG_RST(0),
+                VTSS_M_SD25G_CFG_TARGET_SD_LANE_CFG_EXT_CFG_RST);
+
+        REG_WRM(VTSS_SD25G_TARGET_CMU_FF(sd25g_tgt),
+                VTSS_F_SD25G_TARGET_CMU_FF_REGISTER_TABLE_INDEX(0xFF),
+                VTSS_M_SD25G_TARGET_CMU_FF_REGISTER_TABLE_INDEX);
+
+        REG_WRM(VTSS_SD25G_TARGET_CMU_31(sd25g_tgt),
+                VTSS_F_SD25G_TARGET_CMU_31_CFG_COMMON_RESERVE_7_0(1),
+                VTSS_M_SD25G_TARGET_CMU_31_CFG_COMMON_RESERVE_7_0);
+
+        REG_WRM(VTSS_SD25G_TARGET_CMU_FF(sd25g_tgt),
+                VTSS_F_SD25G_TARGET_CMU_FF_REGISTER_TABLE_INDEX(0),
+                VTSS_M_SD25G_TARGET_CMU_FF_REGISTER_TABLE_INDEX);
+
+    }
+
+    /* MESA-901: Serdes's are default powered up, start with power all down */
+    for (u32 s = 0; s <= 32; s++) {
+        sd_lane_tgt = VTSS_TO_SD_LANE(s);
+        /* Optimal power down settings from GUC */
+        if (s < VTSS_SERDES_25G_START) {
+            REG_WR(VTSS_SD_LANE_TARGET_QUIET_MODE_6G(sd_lane_tgt), 0x1EF4E0C);
+        } else {
+            REG_WR(VTSS_SD25G_CFG_TARGET_QUIET_MODE_6G(sd_lane_tgt), 0x1EF4E0C);
+        }
+    }
+
+    /* MESA-901: CMUs are default powered up, start with power all down */
+    for (u32 cmu = 0; cmu <= 13; cmu++) {
+        cmu_tgt = VTSS_TO_SD_CMU(cmu);
+        cmu_cfg_tgt = VTSS_TO_SD_CMU_CFG(cmu);
+
+        REG_WRM(VTSS_SD_CMU_TERM_TARGET_SD_CMU_CFG(cmu_cfg_tgt),
+                VTSS_F_SD_CMU_TERM_TARGET_SD_CMU_CFG_EXT_CFG_RST(0),
+                VTSS_M_SD_CMU_TERM_TARGET_SD_CMU_CFG_EXT_CFG_RST);
+
+        REG_WRM(VTSS_SD10G_CMU_TARGET_CMU_05(cmu_tgt),
+                VTSS_F_SD10G_CMU_TARGET_CMU_05_CFG_REFCK_TERM_EN(0),
+                VTSS_M_SD10G_CMU_TARGET_CMU_05_CFG_REFCK_TERM_EN);
+
+        REG_WRM(VTSS_SD10G_CMU_TARGET_CMU_09(cmu_tgt),
+                VTSS_F_SD10G_CMU_TARGET_CMU_09_CFG_EN_TX_CK_DN(0),
+                VTSS_M_SD10G_CMU_TARGET_CMU_09_CFG_EN_TX_CK_DN);
+
+        REG_WRM(VTSS_SD10G_CMU_TARGET_CMU_06(cmu_tgt),
+                VTSS_F_SD10G_CMU_TARGET_CMU_06_CFG_VCO_PD(1),
+                VTSS_M_SD10G_CMU_TARGET_CMU_06_CFG_VCO_PD);
+
+        REG_WRM(VTSS_SD10G_CMU_TARGET_CMU_09(cmu_tgt),
+                VTSS_F_SD10G_CMU_TARGET_CMU_09_CFG_EN_TX_CK_UP(0),
+                VTSS_M_SD10G_CMU_TARGET_CMU_09_CFG_EN_TX_CK_UP);
+
+        REG_WRM(VTSS_SD10G_CMU_TARGET_CMU_08(cmu_tgt),
+                VTSS_F_SD10G_CMU_TARGET_CMU_08_CFG_CK_TREE_PD(1),
+                VTSS_M_SD10G_CMU_TARGET_CMU_08_CFG_CK_TREE_PD);
+
+        REG_WRM(VTSS_SD10G_CMU_TARGET_CMU_0D(cmu_tgt),
+                VTSS_F_SD10G_CMU_TARGET_CMU_0D_CFG_REFCK_PD(1) |
+                VTSS_F_SD10G_CMU_TARGET_CMU_0D_CFG_PD_DIV64(1) |
+                VTSS_F_SD10G_CMU_TARGET_CMU_0D_CFG_PD_DIV66(1),
+                VTSS_M_SD10G_CMU_TARGET_CMU_0D_CFG_REFCK_PD |
+                VTSS_M_SD10G_CMU_TARGET_CMU_0D_CFG_PD_DIV64 |
+                VTSS_M_SD10G_CMU_TARGET_CMU_0D_CFG_PD_DIV66);
+
+        REG_WRM(VTSS_SD10G_CMU_TARGET_CMU_06(cmu_tgt),
+                VTSS_F_SD10G_CMU_TARGET_CMU_06_CFG_CTRL_LOGIC_PD(1),
+                VTSS_M_SD10G_CMU_TARGET_CMU_06_CFG_CTRL_LOGIC_PD);
     }
 
     return VTSS_RC_OK;

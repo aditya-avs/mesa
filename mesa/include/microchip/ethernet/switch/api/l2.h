@@ -285,6 +285,7 @@ typedef struct
     mesa_bool_t learning;        // Enable/disable learning
     mesa_bool_t flooding;        // Enable/disable flooding
     mesa_bool_t mirror;          // Enable/disable mirroring
+    mesa_bool_t ingress_filter;  // Ingress filtering
     mesa_vid_t  fid CAP(L2_SVL); // Forwarding ID for SVL/IVL control
 } mesa_vlan_vid_conf_t;
 
@@ -1295,7 +1296,7 @@ mesa_rc mesa_ipv4_mc_flood_members_set(const mesa_inst_t      inst,
 
 // Add IPv4 multicast entry.
 // vid [IN]     VLAN ID.
-// sip [IN]     Source IP address.
+// sip [IN]     Source IP address (zero means any source).
 // dip [IN]     Destination IP address.
 // member [IN]  Port member list.
 mesa_rc mesa_ipv4_mc_add(const mesa_inst_t      inst,
@@ -1347,7 +1348,7 @@ mesa_rc mesa_ipv6_mc_ctrl_flood_set(const mesa_inst_t  inst,
 
 // Add IPv6 multicast entry.
 // vid [IN]     VLAN ID.
-// sip [IN]     Source IP address.
+// sip [IN]     Source IP address (zero means any source).
 // dip [IN]     Destination IP address.
 // member [IN]  Port member list.
 mesa_rc mesa_ipv6_mc_add(const mesa_inst_t      inst,

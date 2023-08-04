@@ -343,7 +343,7 @@ static vtss_rc l26_is1_prepare_action(vtss_state_t *vtss_state,
     u32               entry[VTSS_TCAM_ENTRY_WIDTH];
     vtss_is1_action_t *action = &is1->entry->action;
     
-    memset(entry, 0, sizeof(entry));
+    VTSS_MEMSET(entry, 0, sizeof(entry));
     if (is1->entry->key.type == VTSS_IS1_TYPE_SMAC_SIP) {
         vtss_bs_set(entry, 0, 2, IS1_ACTION_TYPE_SMAC_SIP4); /* Type */
         /* SIP/SMAC action */
@@ -411,9 +411,9 @@ static vtss_rc l26_is1_prepare_key(vtss_state_t *vtss_state,
     int                 i;
     vtss_vcap_bit_t     vcap_bit;
 
-    memset(entry, 0, sizeof(entry));
-    memset(mask, 0, sizeof(mask));
-    memset(&etype, 0, sizeof(etype));
+    VTSS_MEMSET(entry, 0, sizeof(entry));
+    VTSS_MEMSET(mask, 0, sizeof(mask));
+    VTSS_MEMSET(&etype, 0, sizeof(etype));
     
     if (key->type == VTSS_IS1_TYPE_SMAC_SIP) {
         /* SMAC/SIP entry */
@@ -633,7 +633,7 @@ static vtss_rc l26_is2_prepare_action(vtss_state_t *vtss_state,
     u32 entry[VTSS_TCAM_ENTRY_WIDTH];
     u32 mode = 0, policer_ena = 0, policer = 0, mask;
     
-    memset(entry, 0, sizeof(entry));
+    VTSS_MEMSET(entry, 0, sizeof(entry));
 
     if (action->cpu_once)
         entry[0] |= VTSS_BIT(0); /* HIT_ME_ONCE */
@@ -657,7 +657,6 @@ static vtss_rc l26_is2_prepare_action(vtss_state_t *vtss_state,
         VTSS_E("unknown port_action");
         return VTSS_RC_ERROR;
     }
-    entry[0] |= VTSS_ENCODE_BITFIELD(mode, 5, 2); 
     
     if (action->mirror)
         entry[0] |= VTSS_BIT(7); /* MIRROR_ENA */
@@ -670,6 +669,7 @@ static vtss_rc l26_is2_prepare_action(vtss_state_t *vtss_state,
         /* Forwarding and CPU copy disabled, discard using policer to avoid CPU copy */
         policer_ena = 1;
         policer = L26_ACL_POLICER_DISC;
+        mode = 0; // Use mode 0 to make Rx red counters increase
 #if defined(VTSS_FEATURE_QOS_POLICER_DLB)
     } else if (action->evc_police) {
         policer_ena = 1;
@@ -679,6 +679,7 @@ static vtss_rc l26_is2_prepare_action(vtss_state_t *vtss_state,
         policer_ena = 1;
         policer = vtss_state->vcap.acl_policer_alloc[action->policer_no].policer;
     }
+    entry[0] |= VTSS_ENCODE_BITFIELD(mode, 5, 2);
     if (policer_ena)
         entry[0] |= (VTSS_BIT(9) | /* POLICE_ENA */
                      VTSS_ENCODE_BITFIELD(policer, 10, 8)); /* POLICE_IDX */
@@ -733,8 +734,8 @@ static vtss_rc l26_is2_prepare_key(vtss_state_t *vtss_state,
     vtss_ace_ptp_t     *ptp;
     vtss_ace_u128_t    *sipv6;
     
-    memset(entry, 0, sizeof(entry));
-    memset(mask, 0, sizeof(mask));
+    VTSS_MEMSET(entry, 0, sizeof(entry));
+    VTSS_MEMSET(mask, 0, sizeof(mask));
 
     switch (ace->type) {
     case VTSS_ACE_TYPE_ANY:
@@ -822,7 +823,7 @@ static vtss_rc l26_is2_prepare_key(vtss_state_t *vtss_state,
             mac_data.mask[1] = ptp->header.mask[1];   /* PTP byte 1 */
             if (!is2->entry->first) {
                 /* Override SMAC byte 2 and 4 in second lookup */
-                memset(&smac, 0, sizeof(smac));
+                VTSS_MEMSET(&smac, 0, sizeof(smac));
                 smac.value[2] = ptp->header.value[2]; /* PTP byte 4 */
                 smac.mask[2] = ptp->header.mask[2];   /* PTP byte 4 */
                 smac.value[4] = ptp->header.value[3]; /* PTP byte 6 */
@@ -1082,7 +1083,7 @@ static vtss_rc l26_es0_prepare_action(vtss_state_t *vtss_state,
 {
     u32 entry[VTSS_TCAM_ENTRY_WIDTH];
 
-    memset(entry, 0, sizeof(entry));
+    VTSS_MEMSET(entry, 0, sizeof(entry));
     vtss_bs_set(entry, 0, 1, 1);               /* VLD */
     vtss_bs_set(entry, 1, 2, action->tag);     /* TAG_ES0 */
     vtss_bs_set(entry, 3, 2, action->tpid);    /* TAG_TPID_SEL */
@@ -1103,8 +1104,8 @@ static vtss_rc l26_es0_prepare_key(vtss_state_t *vtss_state,
     u32 mask[VTSS_TCAM_ENTRY_WIDTH];
     u32 port;
 
-    memset(entry, 0, sizeof(entry));
-    memset(mask, 0, sizeof(mask));
+    VTSS_MEMSET(entry, 0, sizeof(entry));
+    VTSS_MEMSET(mask, 0, sizeof(mask));
     
     if (key->port_no != VTSS_PORT_NO_NONE) {
         port = VTSS_CHIP_PORT(key->port_no);
@@ -1197,7 +1198,7 @@ static vtss_rc l26_acl_policer_set(vtss_state_t *vtss_state,
     if (pol_alloc->count == 0)
         return VTSS_RC_OK;
 
-    memset(&cfg, 0, sizeof(cfg));
+    VTSS_MEMSET(&cfg, 0, sizeof(cfg));
     if (conf->bit_rate_enable) {
         cfg.eir = conf->bit_rate;
         cfg.ebs = 4*1024; /* 4 kB burst size */
@@ -1420,7 +1421,7 @@ static vtss_rc l26_is2_policer_free(vtss_state_t *vtss_state, vtss_is2_data_t *i
         return VTSS_RC_OK;
     
     /* Convert IS2 policer data to ACL action */
-    memset(&action, 0, sizeof(action));
+    VTSS_MEMSET(&action, 0, sizeof(action));
     if (is2->policer_type == VTSS_L26_POLICER_ACL) {
         action.police = 1;
         action.policer_no = is2->policer;
@@ -1553,7 +1554,7 @@ static vtss_rc l26_ace_add(vtss_state_t *vtss_state,
     *ace_copy = *ace;
     is2->entry = &entry;
     entry.first = 1;
-    memset(&is2->action, 0, sizeof(is2->action));
+    VTSS_MEMSET(&is2->action, 0, sizeof(is2->action));
     if (ace->action.port_action == VTSS_ACL_PORT_ACTION_REDIR) {
         is2->action.redir = 1;
         for (port_no = 0; port_no < vtss_state->port_count; port_no++) {
@@ -1566,7 +1567,7 @@ static vtss_rc l26_ace_add(vtss_state_t *vtss_state,
         /* Neutral actions for first PTP lookup */
         is2->action.redir = 0;
         is2->policer_type = VTSS_L26_POLICER_NONE;
-        memset(&ace_copy->action, 0, sizeof(vtss_acl_action_t));
+        VTSS_MEMSET(&ace_copy->action, 0, sizeof(vtss_acl_action_t));
         ace_copy->action.learn = 1;
     }
     VTSS_RC(vtss_vcap_add(vtss_state, is2_obj, is2_user, ace->id, id_next, &data, 0));
@@ -1782,7 +1783,7 @@ static void l26_debug_action(const vtss_debug_printf_t pr,
 {
     BOOL enable, multi = 0;
     u32  num = 0;
-    int  i, length = strlen(name);
+    int  i, length = VTSS_STRLEN(name);
 
     if (offs_val && (offs_val - offs) != 1) {
         /* 'Enable' field consists of multiple bits */

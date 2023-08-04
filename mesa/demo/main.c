@@ -16,7 +16,6 @@
 #include <sys/syscall.h>
 
 #include "microchip/ethernet/switch/api.h"
-#include "microchip/ethernet/switch/api.h"
 #include "microchip/ethernet/board/api.h"
 #include "main.h"
 #include "trace.h"
@@ -169,62 +168,6 @@ static mesa_rc i2c_write(const mesa_port_no_t port_no,
         close(file);
     }
     T_D("i2c write port %d, addr 0x%x, %d bytes - RC %d", port_no, i2c_addr, cnt, rc);
-    return rc;
-}
-
-static mesa_rc load_board_driver(const char *path, const vtss_board_type_t type)
-{
-#if !defined(__NR_finit_module)
-#error "Modules loading is not supported by the kernel"
-#endif
-
-    char board_type[50];
-    int res = 0, fd;
-    FILE *fp;
-    mesa_rc rc = MESA_RC_OK;
-
-    if (access("/sys/bus/platform/drivers/i2c_designware/bind", F_OK) == 0) {
-        return MESA_RC_OK; // Using device tree on LS1046
-    }
-
-    if ((fp = fopen("/sys/firmware/devicetree/base/model", "r"))) {
-        char model[128];
-        const char *m = fgets(model, sizeof(model), fp);
-        fclose(fp);
-        if (m && strstr(model, "BeagleBone")) {
-            T_I("Board model: %s", model);
-            return MESA_RC_OK; // Using device tree on BeagleBone
-        }
-    }
-
-    if (access("/proc/modules", F_OK | R_OK) != 0) {
-        T_E("Kernel lacks module support, not loading %s", path);
-        return MESA_RC_ERROR;
-    }
-
-    fd = open(path, O_RDONLY|O_CLOEXEC);
-    if (fd < 0) {
-        T_E("Unable to open driver %s: %s", path, strerror(errno));
-        return MESA_RC_ERROR;
-    }
-
-    // finit_module(int fd, const char *uargs, int flags)
-    snprintf(board_type, sizeof(board_type), "board_type=%d", type);
-    T_D("%s", board_type);
-    res = syscall(__NR_finit_module, fd, board_type, 0);
-    if (res == -1) {
-        if (errno == EEXIST) {
-            T_I("Kernel module already loaded: %s", path);
-            goto EXIT_CLOSE;
-        }
-        T_E("Unable to init driver %s: %s", path, strerror(errno));
-        rc = MESA_RC_ERROR;
-        goto EXIT_CLOSE;
-    }
-    T_I("Kernel module loaded: %s", path);
-
-EXIT_CLOSE:
-    close(fd);
     return rc;
 }
 
@@ -1141,6 +1084,7 @@ int main(int argc, char **argv)
     board_info.i2c_write = i2c_write;
     board_info.conf_get = board_conf_get;
     board_info.debug = board_debug;
+    board_info.trace = mscc_mepa_trace_printf;
     if ((meba_inst = meba_initialize(sizeof(board_info), &board_info)) == NULL) {
         T_E("MEBA failed to Instantiate");
         return 1;
@@ -1209,9 +1153,6 @@ int main(int argc, char **argv)
         return 1;
     }
     T_D("Chip ID: 0x%04x, revision: %u", chip_id.part_number, chip_id.revision);
-
-    /* Load any board specific drivers to the kernel */
-    load_board_driver("/lib/modules/board/mscc_board.ko", meba_inst->props.board_type);
 
     // Initialize modules
     init->cmd = MSCC_INIT_CMD_INIT;

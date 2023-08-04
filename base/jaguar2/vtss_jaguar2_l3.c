@@ -102,7 +102,7 @@ static vtss_rc jr2_l3_rleg_hw_stat_poll(vtss_state_t *vtss_state,
 
 
     /* IPv6 UC counters */
-    rleg += VTSS_RLEG_CNT;
+    rleg += VTSS_RLEG_STAT_CNT;
     VTSS_RC(jr2_l3_rleg_counter_update(vtss_state, TRUE, rleg, JR2_L3_CNT_IP_UC_PACKETS,
                                        &prev->ipv6uc_received_frames, &counter->ipv6uc_received_frames));
     VTSS_RC(jr2_l3_rleg_counter_update(vtss_state, TRUE, rleg, JR2_L3_CNT_IP_UC_BYTES,
@@ -129,7 +129,7 @@ static vtss_rc jr2_l3_rleg_stat_reset(vtss_state_t *vtss_state)
 {
     u32 i, j;
 
-    for (i = 0; i < (2*VTSS_RLEG_CNT); i++) {
+    for (i = 0; i < (2*VTSS_RLEG_STAT_CNT); i++) {
         for (j = 0; j < 4; j++) {
             JR2_WR(VTSS_ANA_AC_STAT_CNT_CFG_IRLEG_STAT_MSB_CNT(i, j), 0);
             JR2_WR(VTSS_ANA_AC_STAT_CNT_CFG_IRLEG_STAT_LSB_CNT(i, j), 0);
@@ -247,8 +247,8 @@ static vtss_rc jr2_l3_mc_rt_add(vtss_state_t *vtss_state, vtss_l3_mc_rt_t *rt)
     u32               i, sum = 0;
     u8                sip_mask;
 
-    memset(&data, 0, sizeof(data));
-    memset(&entry, 0, sizeof(entry));
+    VTSS_MEMSET(&data, 0, sizeof(data));
+    VTSS_MEMSET(&entry, 0, sizeof(entry));
     data.u.lpm.entry = &entry;
 
     VTSS_RC(jr2_l3_mc_rt_rleg_add(vtss_state, rt));
@@ -298,8 +298,8 @@ static vtss_rc jr2_l3_rt_add(vtss_state_t *vtss_state,
     vtss_ip_addr_t    *addr = &net->network;
     u32               i, j, n, mask = 0, len = net->prefix_size;
 
-    memset(&data, 0, sizeof(data));
-    memset(&entry, 0, sizeof(entry));
+    VTSS_MEMSET(&data, 0, sizeof(data));
+    VTSS_MEMSET(&entry, 0, sizeof(entry));
     data.u.lpm.entry = &entry;
     if (addr->type == VTSS_IP_TYPE_IPV4) {
         data.key_size = VTSS_VCAP_KEY_SIZE_SIXTEENTH;
@@ -416,6 +416,10 @@ vtss_rc vtss_jr2_l3_debug_print(vtss_state_t *vtss_state,
         return VTSS_RC_OK;
     }
 
+    vtss_jr2_debug_reg_header(pr, "ANA_L3");
+    vtss_jr2_debug_reg(vtss_state, pr, VTSS_ANA_L3_COMMON_ROUTING_CFG, "ROUTING_CFG");
+    pr("\n");
+
     JR2_RD(VTSS_ANA_L3_COMMON_RLEG_CFG_0, &cfg0);
     JR2_RD(VTSS_ANA_L3_COMMON_RLEG_CFG_1, &cfg1);
     pr("Router MAC: %06x-%06x (Type %u)\n\n",
@@ -423,8 +427,8 @@ vtss_rc vtss_jr2_l3_debug_print(vtss_state_t *vtss_state,
        VTSS_X_ANA_L3_COMMON_RLEG_CFG_0_RLEG_MAC_LSB(cfg0),
        VTSS_X_ANA_L3_COMMON_RLEG_CFG_1_RLEG_MAC_TYPE_SEL(cfg1));
     
-    for (i = 0; i < VTSS_RLEG_CNT; i++) {
-        if (vtss_state->l3.rleg_conf[i].vlan == 0 && !info->full) {
+    for (i = 0; i < VTSS_RLEG_STAT_CNT; i++) {
+        if (i < VTSS_RLEG_CNT && vtss_state->l3.rleg_conf[i].vlan == 0 && !info->full) {
             continue;
         }
         
@@ -435,11 +439,11 @@ vtss_rc vtss_jr2_l3_debug_print(vtss_state_t *vtss_state,
         JR2_RD(VTSS_ANA_L3_VMID_RLEG_CTRL(i), &value);
         JR2_RD(VTSS_ANA_L3_VMID_VRRP_CFG(i, 0), &cfg0);
         JR2_RD(VTSS_ANA_L3_VMID_VRRP_CFG(i, 1), &cfg1);
-        sprintf(buf0, "%u (%u/%u)",
+        VTSS_SPRINTF(buf0, "%u (%u/%u)",
                 VTSS_X_ANA_L3_VMID_RLEG_CTRL_RLEG_IP4_VRID_ENA(value),
                 VTSS_X_ANA_L3_VMID_VRRP_CFG_RLEG_IP4_VRID(cfg0),
                 VTSS_X_ANA_L3_VMID_VRRP_CFG_RLEG_IP4_VRID(cfg1));
-        sprintf(buf1, "%u (%u/%u)",
+        VTSS_SPRINTF(buf1, "%u (%u/%u)",
                 VTSS_X_ANA_L3_VMID_RLEG_CTRL_RLEG_IP6_VRID_ENA(value),
                 VTSS_X_ANA_L3_VMID_VRRP_CFG_RLEG_IP6_VRID(cfg0),
                 VTSS_X_ANA_L3_VMID_VRRP_CFG_RLEG_IP6_VRID(cfg1));
@@ -464,7 +468,7 @@ vtss_rc vtss_jr2_l3_debug_print(vtss_state_t *vtss_state,
     }
 
     for (vid = VTSS_VID_NULL; vid < VTSS_VIDS; vid++) {
-        if (!vtss_state->l2.vlan_table[vid].enabled && !info->full) {
+        if (!(vtss_state->l2.vlan_table[vid].flags & VLAN_FLAGS_ENABLED) && !info->full) {
             continue;
         }
         
@@ -550,8 +554,8 @@ vtss_rc vtss_jr2_l3_debug_print(vtss_state_t *vtss_state,
         vtss_jr2_debug_sticky(vtss_state, pr, VTSS_ANA_L3_VLAN_ARP_L3MC_STICKY_L3_ARP_IPMC_STICKY, "ARP_IPMC_STICKY");
     }
 
-    for (i = 0; i < VTSS_RLEG_CNT; i++) {
-        if ((vtss_state->l3.rleg_conf[i].vlan == 0 && !info->full) ||
+    for (i = 0; i < VTSS_RLEG_STAT_CNT; i++) {
+        if ((i < VTSS_RLEG_CNT && vtss_state->l3.rleg_conf[i].vlan == 0 && !info->full) ||
             jr2_l3_rleg_hw_stat_poll(vtss_state, i) != VTSS_RC_OK) {
             continue;
         }
@@ -600,11 +604,17 @@ static vtss_rc jr2_l3_init_counter(vtss_state_t *vtss_state, u32 idx, u32 cnt_by
 
 static vtss_rc jr2_l3_init(vtss_state_t *vtss_state)
 {
+    u32 mask;
+
     VTSS_RC(jr2_l3_init_counter(vtss_state, JR2_L3_CNT_IP_UC_PACKETS, 0, 3, 1));
     VTSS_RC(jr2_l3_init_counter(vtss_state, JR2_L3_CNT_IP_UC_BYTES,   1, 3, 1));
     VTSS_RC(jr2_l3_init_counter(vtss_state, JR2_L3_CNT_IP_MC_PACKETS, 0, 4, 2));
     VTSS_RC(jr2_l3_init_counter(vtss_state, JR2_L3_CNT_IP_MC_BYTES,   1, 4, 2));
 
+    mask = (VTSS_M_ANA_L3_COMMON_ROUTING_CFG_CPU_RLEG_IP_HDR_FAIL_REDIR_ENA |
+            VTSS_M_ANA_L3_COMMON_ROUTING_CFG_CPU_IP6_HOPBYHOP_REDIR_ENA |
+            VTSS_M_ANA_L3_COMMON_ROUTING_CFG_CPU_IP4_OPTIONS_REDIR_ENA);
+    JR2_WRM(VTSS_ANA_L3_COMMON_ROUTING_CFG, mask, mask);
 #if defined(JR2_L3_INGRESS_MAC_UPDATE)
     JR2_WRM_SET(VTSS_ANA_L3_COMMON_ROUTING_CFG,
                 VTSS_M_ANA_L3_COMMON_ROUTING_CFG_RT_SMAC_UPDATE_ENA);
@@ -622,7 +632,7 @@ static vtss_rc jr2_l3_poll(vtss_state_t *vtss_state)
        The worst case is a 40-bit byte counter, which would wrap in about 900 seconds at 10 Gbps */
     VTSS_RC(jr2_l3_rleg_hw_stat_poll(vtss_state, vtss_state->l3.statistics.rleg));
     vtss_state->l3.statistics.rleg++;
-    if (vtss_state->l3.statistics.rleg >= VTSS_RLEG_CNT) {
+    if (vtss_state->l3.statistics.rleg >= VTSS_RLEG_STAT_CNT) {
         vtss_state->l3.statistics.rleg = 0;
     }
     return VTSS_RC_OK;

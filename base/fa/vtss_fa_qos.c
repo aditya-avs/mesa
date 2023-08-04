@@ -835,7 +835,7 @@ static vtss_rc fa_queue_policer_set(vtss_state_t *vtss_state,
         u32                     pol_idx = VTSS_QUEUE_POL_IDX(port, queue);
         vtss_dlb_policer_conf_t dlb_conf;
 
-        memset(&dlb_conf, 0, sizeof(dlb_conf));
+        VTSS_MEMSET(&dlb_conf, 0, sizeof(dlb_conf));
         dlb_conf.type = VTSS_POLICER_TYPE_SINGLE;
         dlb_conf.enable = (conf->rate == VTSS_BITRATE_DISABLED) ? FALSE : TRUE;
         dlb_conf.line_rate = 1;
@@ -1190,7 +1190,7 @@ static vtss_rc fa_qos_leak_list_link(vtss_state_t         *vtss_state,
     int                   group;
     BOOL                  change_group = FALSE;
 
-    VTSS_D("Enter - layer %u, se %u", layer, se);
+    VTSS_D("Enter - layer %u, se %u, rate %u", layer, se, rate);
 
     if (layer >= VTSS_HSCH_LAYERS) {
         VTSS_E("Invalid layer %u!", layer);
@@ -1261,10 +1261,15 @@ static vtss_rc fa_qos_leak_list_link(vtss_state_t         *vtss_state,
 
 vtss_rc vtss_fa_qos_shaper_conf_set(vtss_state_t *vtss_state, vtss_shaper_t *shaper, u32 layer, u32 se, u32 dlb_sense_port, u32 dlb_sense_qos)
 {
-    u32            cir, cbs;
-    vtss_bitrate_t resolution;
+    u32                   cir, cbs;
+    vtss_bitrate_t        resolution, frame_kbps;
+    vtss_shaper_mode_t    mode;
+    vtss_qos_leak_layer_t *ll = &vtss_state->qos.leak_conf.layer[layer];
+    vtss_qos_leak_entry_t *le = &ll->entry[se];
+    vtss_qos_leak_group_t *lg;
 
-    VTSS_D("Enter - layer %u, se %u, dlb_sense_port %u, dlb_sense_qos %u!", layer, se, dlb_sense_port, dlb_sense_qos);
+    VTSS_D("Enter - layer %u, se %u, rate %u, mode %u, dlb_sense_port %u, dlb_sense_qos %u!",
+            layer, se, shaper->rate, shaper->mode, dlb_sense_port, dlb_sense_qos);
 
     /* Shaper rate configuration.
      * Resolution is determined by the actual leak list. Example if resolution is 100 kbps:
@@ -1289,17 +1294,67 @@ vtss_rc vtss_fa_qos_shaper_conf_set(vtss_state_t *vtss_state, vtss_shaper_t *sha
             VTSS_M_HSCH_HSCH_CFG_CFG_HSCH_LAYER);
 
     if (shaper->rate != VTSS_BITRATE_DISABLED) {
-        VTSS_RC(fa_qos_leak_list_link(vtss_state, layer, se, shaper->rate, &resolution));
+        if (shaper->mode != VTSS_SHAPER_MODE_FRAME) {
+            VTSS_RC(fa_qos_leak_list_link(vtss_state, layer, se, shaper->rate, &resolution));
 
-        cir = MIN(VTSS_BITMASK(17), VTSS_DIV_ROUND_UP(shaper->rate,  resolution));
-        cbs = MIN(VTSS_BITMASK(6),  VTSS_DIV_ROUND_UP(shaper->level, 4096));
+            cir = MIN(VTSS_BITMASK(17), VTSS_DIV_ROUND_UP(shaper->rate,  resolution));
+            cbs = MIN(VTSS_BITMASK(6),  VTSS_DIV_ROUND_UP(shaper->level, 4096));
+            mode = shaper->mode;
+        } else {
+            /* This is Frame based shaping */
 
+            /* Try with Low rate mode */
+            /* Insert scheduler element in leak list based on frame_kbps */
+            /* Call to fa_qos_leak_list_link() changes the le->group */
+            frame_kbps = ((uint64_t)shaper->rate * 100000) / 1000;  /* Each frame uses 100000 tokens */
+            VTSS_RC(fa_qos_leak_list_link(vtss_state, layer, se, frame_kbps, &resolution));
+            lg = &ll->group[le->group];
+
+            /* Uses 100000 tokens for every frame transmitted */
+            /* At every leak timeout one token is taken - that is 0.00001 frame - it requires 100000 leak_time to send a frame */
+            /* Calculate the frames per sec if cir is one */
+            /* frame_time_ns = lg->leak_time * 100000; */
+            /* frame_time_s = (lg->leak_time * 100000)/1000000000; */
+            /* frame_per_sec = 1000000000/(lg->leak_time * 100000); */
+            /* frame_per_sec = 10000/lg->leak_time; */
+            /* Calculate the value for CIR */
+            /* cir = shaper->rate / frame_per_sec; */
+            cir = ((uint64_t)shaper->rate * lg->leak_time) / 10000;
+            cbs = MIN(VTSS_BITMASK(6),  VTSS_DIV_ROUND_UP((shaper->level * 10), 3));
+            mode = 3;
+
+            if (VTSS_BITMASK(17) < cir) {   /* Check if CIR fits into the register */
+                /* Try with High rate mode. */
+                /* Insert scheduler element in leak list based on frame_kbps */
+                /* Call to fa_qos_leak_list_link() changes the le->group */
+                frame_kbps = ((uint64_t)shaper->rate * 1000) / 1000; /* Each frame uses 1000 tokens */
+                VTSS_RC(fa_qos_leak_list_unlink(vtss_state, layer, se));
+                VTSS_RC(fa_qos_leak_list_link(vtss_state, layer, se, frame_kbps, &resolution));
+                lg = &ll->group[le->group];
+
+                /* Uses 1000 tokens for every frame transmitted */
+                /* At every leak timeout one token is taken - that is 0.001 frame - it requires 1000 leak_time to send a frame */
+                /* Calculate the frames per sec if cir is one */
+                /* frame_time_ns = lg->leak_time * 1000; */
+                /* frame_time_s = (lg->leak_time * 1000)/1000000000; */
+                /* frame_per_sec = 1000000000/(lg->leak_time * 1000); */
+                /* frame_per_sec = 1000000/lg->leak_time; */
+                /* Calculate the value for CIR */
+                /* cir = shaper->rate / frame_per_sec; */
+                cir = ((uint64_t)shaper->rate * lg->leak_time) / 1000000;
+                cbs = MIN(VTSS_BITMASK(6),  VTSS_DIV_ROUND_UP((shaper->level * 10), 328));
+                mode = 2;
+            }
+
+            VTSS_D("cir %u  cbs %u  mode %u  leak_time %u", cir, cbs, mode, lg->leak_time);
+            cir = MIN(VTSS_BITMASK(17), cir);
+        }
         REG_WR(VTSS_HSCH_CIR_CFG(se),
                VTSS_F_HSCH_CIR_CFG_CIR_RATE(cir) |
                VTSS_F_HSCH_CIR_CFG_CIR_BURST(cbs));
 
         REG_WRM(VTSS_HSCH_SE_CFG(se),
-                VTSS_F_HSCH_SE_CFG_SE_FRM_MODE(shaper->mode),
+                VTSS_F_HSCH_SE_CFG_SE_FRM_MODE(mode),
                 VTSS_M_HSCH_SE_CFG_SE_FRM_MODE);
     } else {
         REG_WR(VTSS_HSCH_CIR_CFG(se),      0); /* Disable CIR */
@@ -1323,10 +1378,13 @@ static vtss_rc fa_qos_queue_shaper_conf_set(vtss_state_t *vtss_state, const vtss
     u32                  layer = 0; /* Default layer on all variants */
     int                  queue;
 
-    VTSS_D("Enter - port_no: %u", port_no);
+    VTSS_D("Enter - port_no: %u  chip_port %u", port_no, chip_port);
     for (queue = 0; queue < 8; queue++) {
         u32 se = FA_HSCH_L0_SE(chip_port, queue);
         VTSS_RC(vtss_fa_qos_shaper_conf_set(vtss_state, &conf->shaper_queue[queue], layer, se, chip_port, queue));
+        REG_WRM(VTSS_HSCH_SE_CFG(se),
+                VTSS_F_HSCH_SE_CFG_SE_AVB_ENA(conf->shaper_queue[queue].credit_enable),
+                VTSS_M_HSCH_SE_CFG_SE_AVB_ENA);
     }
 
     VTSS_D("Exit");
@@ -2093,7 +2151,7 @@ static vtss_rc fa_qos_cpu_port_shaper_set(vtss_state_t *vtss_state, const vtss_b
     u32            port, queue, packet_rate, se;
 
     VTSS_D("Enter");
-    memset(&shaper, 0, sizeof(shaper));
+    VTSS_MEMSET(&shaper, 0, sizeof(shaper));
     shaper.rate  = rate;       // kbps
     shaper.level = (4096 * 4); // 16 kbytes burst size
     for (port = VTSS_CHIP_PORT_CPU_0; port <= VTSS_CHIP_PORT_CPU_1; port++) {
@@ -2349,7 +2407,7 @@ static BOOL tas_trunk_port_conf_calc(vtss_qos_tas_port_conf_t  *current_port_con
     u32 trunk_duration, interval_sum = 0, i = 0;
     vtss_timestamp_t  trunk_duration_time;
 
-    memset(trunk_port_conf, 0, sizeof(*trunk_port_conf));
+    VTSS_MEMSET(trunk_port_conf, 0, sizeof(*trunk_port_conf));
 
     /* Calculate max duration of trunk list */
     trunk_duration_time = *new_start_time;
@@ -2361,7 +2419,7 @@ static BOOL tas_trunk_port_conf_calc(vtss_qos_tas_port_conf_t  *current_port_con
     trunk_duration = trunk_duration_time.nanoseconds + trunk_duration_time.seconds * 1000000000; /* Without including 'sec_msb' the gap can be up to 136 years - must be enough */
 
     /* Copy the full current port configuration toe trunk */
-    memcpy(trunk_port_conf, current_port_conf, sizeof(*trunk_port_conf));
+    VTSS_MEMCPY(trunk_port_conf, current_port_conf, sizeof(*trunk_port_conf));
 
     /* Calculate the required number of GCL list entries in the trunk list */
     for (i = 0; i < current_port_conf->gcl_length; ++i) {
@@ -2391,13 +2449,13 @@ static BOOL tas_trunk_port_conf_calc(vtss_qos_tas_port_conf_t  *current_port_con
 
 static void tas_stop_port_conf_calc(vtss_timestamp_t *current_end_time, BOOL *gate_open, vtss_qos_tas_port_conf_t *stop_port_conf)
 {
-    memset(stop_port_conf, 0, sizeof(*stop_port_conf));
+    VTSS_MEMSET(stop_port_conf, 0, sizeof(*stop_port_conf));
 
     stop_port_conf->base_time = *current_end_time;
     stop_port_conf->cycle_time = 1000;
     stop_port_conf->gcl_length = 1;
     stop_port_conf->gcl[0].gate_operation = VTSS_QOS_TAS_GCO_SET_AND_RELEASE_MAC;
-    memcpy(stop_port_conf->gcl[0].gate_open, gate_open, sizeof(stop_port_conf->gcl[0].gate_open));
+    VTSS_MEMCPY(stop_port_conf->gcl[0].gate_open, gate_open, sizeof(stop_port_conf->gcl[0].gate_open));
     stop_port_conf->gcl[0].time_interval = 1000;
 }
 
@@ -2408,7 +2466,7 @@ static vtss_rc tas_current_port_conf_calc(vtss_state_t *vtss_state, vtss_port_no
     vtss_tas_gcl_state_t  *gcl_state = &vtss_state->qos.tas.tas_gcl_state[port_no];
     vtss_tas_list_t       *tas_lists = vtss_state->qos.tas.tas_lists;
 
-    memset(current_port_conf, 0, sizeof(*current_port_conf));
+    VTSS_MEMSET(current_port_conf, 0, sizeof(*current_port_conf));
     if (gcl_state->curr_list_idx == TAS_LIST_IDX_NONE) {
         return VTSS_RC_OK;
     }
@@ -2594,7 +2652,7 @@ static BOOL tas_current_end_time_calc(vtss_state_t *vtss_state,  u32 current_lis
     u32               current_cycle_time;
     u64               diff_base_time_u64, current_elapse_time;
 
-    memset(current_end_time, 0, sizeof(*current_end_time));
+    VTSS_MEMSET(current_end_time, 0, sizeof(*current_end_time));
 
     if (current_list_idx != TAS_LIST_IDX_NONE) {
         /* Get the base time of current list */
@@ -2635,7 +2693,8 @@ static void tas_gcl_state_update(vtss_state_t *vtss_state, const vtss_port_no_t 
 
     if (gcl_state->next_list_idx != TAS_LIST_IDX_NONE) {    /* Start next list is ongoing. Check if done */
         next_state = tas_list_state_read(vtss_state, gcl_state->next_list_idx);
-        if (next_state == TAS_LIST_STATE_OPERATING) {   /* Start next list is done */
+        if ((next_state == TAS_LIST_STATE_OPERATING) ||
+            (next_state == TAS_LIST_STATE_ADMIN)) {   /* Start next list is done or terminated */
             (void)tas_list_free(vtss_state, gcl_state->curr_list_idx);    /* Free any possible valid lists */
             (void)tas_list_free(vtss_state, gcl_state->trunk_list_idx);
             if (gcl_state->stop_ongoing) {  /* The next list is a stop list */
@@ -2958,7 +3017,8 @@ static vtss_rc fa_qos_tas_conf_set(vtss_state_t *vtss_state)
 
 static vtss_rc fa_qos_tas_port_conf_set(vtss_state_t *vtss_state, const vtss_port_no_t port_no)
 {
-    u32                      i, profile_idx, trunk_profile_idx, trunk_startup_time, stop_startup_time, time_gap, new_startup_time;
+    u32                      i, profile_idx, trunk_profile_idx, trunk_startup_time, stop_startup_time, time_gap,
+                             new_startup_time = 2000;  /* two nanoseconds */
     u32                      list_idx, trunk_list_idx, obsolete_list_idx, stop_list_idx;
     vtss_qos_tas_port_conf_t *new_port_conf = &vtss_state->qos.tas.port_conf[port_no];
     vtss_qos_tas_port_conf_t trunk_port_conf, stop_port_conf, current_port_conf;
@@ -2971,7 +3031,7 @@ static vtss_rc fa_qos_tas_port_conf_set(vtss_state_t *vtss_state, const vtss_por
     list_idx = trunk_list_idx = obsolete_list_idx = stop_list_idx = TAS_LIST_IDX_NONE;
     profile_idx = trunk_profile_idx = TAS_PROFILE_IDX_NONE;
     trunk_startup_time = stop_startup_time = time_gap = 0;
-    memset(&current_end_time, 0, sizeof(current_end_time));
+    VTSS_MEMSET(&current_end_time, 0, sizeof(current_end_time));
 
     /* Update the GCL state */
     tas_gcl_state_update(vtss_state, port_no);
@@ -3109,20 +3169,22 @@ static vtss_rc fa_qos_tas_port_conf_set(vtss_state_t *vtss_state, const vtss_por
             }
 
             /* Start the new list */
-            /* Calculate the 'old' last cycle start time */
-            if (trunk_list_idx != TAS_LIST_IDX_NONE) {
-                old_cycle_start_time = trunk_port_conf.base_time;   /* Trunk list has only one cycle so the base time is the start of the last cycle */
-            } else {
-                old_cycle_start_time = current_end_time;            /* Start of current last cycle is the end time of last cycle minus the cycle time */
-                if (vtss_timestampSubNano(&old_cycle_start_time, current_port_conf.cycle_time) != VTSS_RC_OK) {
-                    VTSS_D("Calculate the 'old' last cycle start time failed");
+            if (gcl_state->curr_list_idx != TAS_LIST_IDX_NONE) {
+                /* Calculate the 'old' last cycle start time */
+                if (trunk_list_idx != TAS_LIST_IDX_NONE) {
+                    old_cycle_start_time = trunk_port_conf.base_time;   /* Trunk list has only one cycle so the base time is the start of the last cycle */
+                } else {
+                    old_cycle_start_time = current_end_time;            /* Start of current last cycle is the end time of last cycle minus the cycle time */
+                    if (vtss_timestampSubNano(&old_cycle_start_time, current_port_conf.cycle_time) != VTSS_RC_OK) {
+                        VTSS_D("Calculate the 'old' last cycle start time failed");
+                        return VTSS_RC_ERROR;
+                    }
+                }
+                /* Calculate the new startup time */
+                if (!tas_time_stamp_diff(&new_port_conf->base_time, &old_cycle_start_time, &new_startup_time)) { /* STARTUP_TIME := first_cycle_start(B) - last_cycle_start(A). */
+                    VTSS_D("Calculate the new startup time failed");
                     return VTSS_RC_ERROR;
                 }
-            }
-            /* Calculate the new startup time */
-            if (!tas_time_stamp_diff(&new_port_conf->base_time, &old_cycle_start_time, &new_startup_time)) { /* STARTUP_TIME := first_cycle_start(B) - last_cycle_start(A). */
-                VTSS_D("Calculate the new startup time failed");
-                return VTSS_RC_ERROR;
             }
             if (tas_list_start(vtss_state, port_no, list_idx, obsolete_list_idx, new_port_conf, new_startup_time) != VTSS_RC_OK) {
                 /* Start failed */
@@ -3170,6 +3232,15 @@ static vtss_rc fa_qos_tas_port_conf_set(vtss_state_t *vtss_state, const vtss_por
         if (gcl_state->curr_list_idx != TAS_LIST_IDX_NONE) {
             /* Calculate first possible base time of stop list. This is TOD plus two times the current cycle time */
             _vtss_ts_domain_timeofday_get(vtss_state, 0, &stop_base_time, &tc);
+             VTSS_D("stop base_time seconds %u  nanoseconds %u  sec_msb %u", stop_base_time.seconds, stop_base_time.nanoseconds, stop_base_time.sec_msb);
+             VTSS_D("current base_time seconds %u  nanoseconds %u  sec_msb %u", current_port_conf.base_time.seconds, current_port_conf.base_time.nanoseconds, current_port_conf.base_time.sec_msb);
+
+            /* Check if current base time is in the future. This should not happen as gcl_state say that list is started */
+            if (vtss_timestampLarger(&current_port_conf.base_time, &stop_base_time)) {
+                VTSS_D("current list base time is in the future");
+                stop_base_time = current_port_conf.base_time;
+            }
+
             if (vtss_timestampAddNano(&stop_base_time, 2 * current_port_conf.cycle_time) != VTSS_RC_OK) {
                 VTSS_D("Calculate first possible base time of stop list failed.  cycle_time %u", current_port_conf.cycle_time);
                 return VTSS_RC_ERROR;
@@ -3219,7 +3290,7 @@ static vtss_rc fa_qos_tas_port_status_get(vtss_state_t              *vtss_state,
     u32                   list_idx = TAS_LIST_IDX_NONE;
     vtss_tas_gcl_state_t  *gcl_state = &vtss_state->qos.tas.tas_gcl_state[port_no];
 
-    memset(status, 0, sizeof(*status));
+    VTSS_MEMSET(status, 0, sizeof(*status));
 
     /* Update the GCL state */
     tas_gcl_state_update(vtss_state, port_no);
@@ -3246,31 +3317,20 @@ static vtss_rc fa_qos_tas_port_status_get(vtss_state_t              *vtss_state,
 }
 
 #if defined(VTSS_FEATURE_QOS_FRAME_PREEMPTION)
-static vtss_rc fa_qos_fp_port_conf_set(vtss_state_t *vtss_state, const vtss_port_no_t port_no, BOOL is_reset)
+static vtss_rc fa_qos_fp_port_conf_set(vtss_state_t *vtss_state, const vtss_port_no_t port_no)
 {
     vtss_qos_fp_port_conf_t *conf = &vtss_state->qos.fp.port_conf[port_no];
     u32                     enable_tx = (conf->enable_tx ? 1 : 0);
     u32                     i, unit, port = VTSS_CHIP_PORT(port_no);
     vtss_port_speed_t       speed = vtss_state->port.conf[port_no].speed;
+    BOOL                    verify_dis = !(!conf->verify_disable_tx && conf->enable_tx);
 
-    if (is_reset) {
-        if (enable_tx) {
-            // In reset, only setup if Tx disabled
-            return VTSS_RC_OK;
-        }
-    } else {
-        if (!enable_tx) {
-            // Out of reset, only setup if Tx enabled
-            return VTSS_RC_OK;
-        }
+    if (speed > VTSS_SPEED_10G) {
+        VTSS_E("frame preemption is not supported for port speeds above 10G");
+        return VTSS_RC_ERROR;
     }
 
-    /* Check if frame preemption is supported for port speed */
     if (enable_tx) {
-        if (speed > VTSS_SPEED_10G) {
-            VTSS_E("frame preemption is not supported for port speeds above 10G");
-            return VTSS_RC_ERROR;
-        }
         if (speed == VTSS_SPEED_10G && vtss_state->init_conf.core_clock.freq < VTSS_CORE_CLOCK_500MHZ) {
             VTSS_E("frame preemption requires at least 500 MHz core clock for 10G ports");
             return VTSS_RC_ERROR;
@@ -3279,19 +3339,13 @@ static vtss_rc fa_qos_fp_port_conf_set(vtss_state_t *vtss_state, const vtss_port
             VTSS_E("frame preemption does not support add_frag_size 3");
             return VTSS_RC_ERROR;
         }
+        for (i = 0; i < 8; i++) {
+            if (vtss_state->qos.port_conf[port_no].cut_through_enable[i]) {
+                VTSS_E("frame preemption and cut through cannot both be enabled");
+                return VTSS_RC_ERROR;
+            }
+        }
     }
-
-    /* Disable preemptable queues */
-    for (i = 0; i < 8; i++) {
-        REG_WRM(VTSS_HSCH_HSCH_L0_CFG(FA_HSCH_L0_SE(port, i)),
-                VTSS_F_HSCH_HSCH_L0_CFG_P_QUEUES(0),
-                VTSS_M_HSCH_HSCH_L0_CFG_P_QUEUES);
-    }
-
-    DEV_WR(ENABLE_CONFIG, port,
-           VTSS_F_DEV1G_ENABLE_CONFIG_MM_RX_ENA(1) |
-           VTSS_F_DEV1G_ENABLE_CONFIG_MM_TX_ENA(enable_tx) |
-           VTSS_F_DEV1G_ENABLE_CONFIG_KEEP_S_AFTER_D(0));
 
     /* Unit depends on speed */
     switch (speed) {
@@ -3305,8 +3359,13 @@ static vtss_rc fa_qos_fp_port_conf_set(vtss_state_t *vtss_state, const vtss_port
         unit = 2;
         break;
     }
+
+    DEV_WRM(VERIF_CONFIG, port,
+            VTSS_F_DEV1G_VERIF_CONFIG_PRM_VERIFY_DIS(1),
+            VTSS_M_DEV1G_VERIF_CONFIG_PRM_VERIFY_DIS);
+
     DEV_WR(VERIF_CONFIG, port,
-           VTSS_F_DEV1G_VERIF_CONFIG_PRM_VERIFY_DIS(conf->verify_disable_tx) |
+           VTSS_F_DEV1G_VERIF_CONFIG_PRM_VERIFY_DIS(verify_dis) |
            VTSS_F_DEV1G_VERIF_CONFIG_PRM_VERIFY_TIME(conf->verify_time) |
            VTSS_F_DEV1G_VERIF_CONFIG_VERIF_TIMER_UNITS(unit));
 
@@ -3315,11 +3374,16 @@ static vtss_rc fa_qos_fp_port_conf_set(vtss_state_t *vtss_state, const vtss_port
     REG_WR(VTSS_DSM_IPG_SHRINK_CFG(port),
            VTSS_F_DSM_IPG_SHRINK_CFG_IPG_SHRINK_ENA(enable_tx));
 
-    /* Enable/disable preemptable queues */
     for (i = 0; i < 8; i++) {
+        /* Enable/disable preemptable queues */
         REG_WRM(VTSS_HSCH_HSCH_L0_CFG(FA_HSCH_L0_SE(port, i)),
                 VTSS_F_HSCH_HSCH_L0_CFG_P_QUEUES(enable_tx && conf->admin_status[i] ? 0xff : 0),
                 VTSS_M_HSCH_HSCH_L0_CFG_P_QUEUES);
+        /* Force queue update */
+        REG_WR(VTSS_HSCH_HSCH_FORCE_CTRL,
+               VTSS_F_HSCH_HSCH_FORCE_CTRL_HFORCE_LAYER(0) |
+               VTSS_F_HSCH_HSCH_FORCE_CTRL_HFORCE_SE_IDX(FA_HSCH_L0_SE(port, i)) |
+               VTSS_F_HSCH_HSCH_FORCE_CTRL_HFORCE_1SHOT(1));
     }
 
     if (vtss_state->misc.chip_id.revision == 0) {
@@ -3336,7 +3400,7 @@ static vtss_rc fa_qos_fp_port_conf_set(vtss_state_t *vtss_state, const vtss_port
     }
     (void)fa_qos_tas_update(vtss_state, port_no);
 
-    return fa_qos_queue_cut_through_set(vtss_state, port_no);
+    return VTSS_RC_OK;
 }
 
 static vtss_rc fa_qos_fp_port_status_get(vtss_state_t              *vtss_state,
@@ -3344,13 +3408,32 @@ static vtss_rc fa_qos_fp_port_status_get(vtss_state_t              *vtss_state,
                                          vtss_qos_fp_port_status_t *const status)
 {
     u32 value, v, port = VTSS_CHIP_PORT(port_no);
+    vtss_qos_fp_port_conf_t *conf = &vtss_state->qos.fp.port_conf[port_no];
+    vtss_port_speed_t speed = vtss_state->port.conf[port_no].speed;
 
+    if (speed > VTSS_SPEED_10G) {
+        status->preemption_active = 0;
+        status->status_verify = VTSS_MM_STATUS_VERIFY_DISABLED;
+        return VTSS_RC_OK;
+    }
     DEV_RD(MM_STATUS, port, &value);
     status->preemption_active = VTSS_X_DEV1G_MM_STATUS_PRMPT_ACTIVE_STATUS(value);
     if (vtss_state->qos.fp.port_conf[port_no].verify_disable_tx) {
         v = VTSS_MM_STATUS_VERIFY_DISABLED;
     } else {
         v = VTSS_X_DEV1G_MM_STATUS_PRMPT_VERIFY_STATE(value);
+
+        if (v == 3 && conf->enable_tx) {
+            /* Verification failed, restart it */
+            DEV_WRM(VERIF_CONFIG, port,
+                    VTSS_F_DEV1G_VERIF_CONFIG_PRM_VERIFY_DIS(1),
+                    VTSS_M_DEV1G_VERIF_CONFIG_PRM_VERIFY_DIS);
+
+            DEV_WRM(VERIF_CONFIG, port,
+                    VTSS_F_DEV1G_VERIF_CONFIG_PRM_VERIFY_DIS(0),
+                    VTSS_M_DEV1G_VERIF_CONFIG_PRM_VERIFY_DIS);
+        }
+
         // DEV2G5 does not support full state
         v = (vtss_fa_port_is_high_speed(vtss_state, port) || v == 0 ? v : (v + 2));
     }
@@ -3361,12 +3444,8 @@ static vtss_rc fa_qos_fp_port_status_get(vtss_state_t              *vtss_state,
 
 vtss_rc vtss_fa_qos_port_change(vtss_state_t *vtss_state, vtss_port_no_t port_no, BOOL is_reset)
 {
-    /* Setup depending on port speed */
-#if defined(VTSS_FEATURE_QOS_FRAME_PREEMPTION)
-    return fa_qos_fp_port_conf_set(vtss_state, port_no, is_reset);
-#else
+    /* Setup depending on port reset status */
     return (is_reset ? fa_qos_queue_cut_through_set(vtss_state, port_no) : VTSS_RC_OK);
-#endif
 }
 
 /* - Debug print --------------------------------------------------- */
@@ -3514,7 +3593,7 @@ static vtss_rc fa_debug_qos_ingress_mapping(vtss_state_t              *vtss_stat
         pr("Index %u, (%u of %u)\n", ix, len + 1, length);
         pr("%-32s: PATH  TC  DP  COSID  QOS  DEI  PCP  DSCP\n", "");
         REG_RD(VTSS_ANA_CL_SET_CTRL(ix), &value);
-        sprintf(buf, "    MAP_TBL[%u]:SET_CTRL", ix);
+        VTSS_SPRINTF(buf, "    MAP_TBL[%u]:SET_CTRL", ix);
         pr("%-32s: %4u  %2u  %2u  %5u  %3u  %3u  %3u  %4u\n",
                buf,
                VTSS_X_ANA_CL_SET_CTRL_PATH_ENA(value),
@@ -3528,7 +3607,7 @@ static vtss_rc fa_debug_qos_ingress_mapping(vtss_state_t              *vtss_stat
         pr("%-32s: FWD_DIS  PATH_COLOR  PATH_COSID  TC  DP  COSID  QOS  DEI  PCP  DSCP\n", "");
         for (col = 0; col < 8; col++) {
             REG_RD(VTSS_ANA_CL_MAP_ENTRY(ix, col), &value);
-            sprintf(buf, "    MAP_TBL[%u]:MAP_ENTRY[%u]", ix, col);
+            VTSS_SPRINTF(buf, "    MAP_TBL[%u]:MAP_ENTRY[%u]", ix, col);
             pr("%-32s: %7u  %10u  %10u  %2u  %2u  %5u  %3u  %3u  %3u  %4u\n",
                buf,
                VTSS_X_ANA_CL_MAP_ENTRY_FWD_DIS(value),
@@ -3559,13 +3638,13 @@ static vtss_rc fa_debug_qos_egress_mapping(vtss_state_t              *vtss_state
 
     for (len = 0; len < length; len++) {
         ix = ix_start + len;
-        sprintf(buf, "Index %u, (%u of %u)", ix, len + 1, length);
+        VTSS_SPRINTF(buf, "Index %u, (%u of %u)", ix, len + 1, length);
         pr("%-32s: OAM_COLOR  OAM_COSID  TC  DSCP  DEI  PCP\n", buf);
         for (col = 0; col < 8; col++) {
             addr = (ix * 8) + col;
             if (res == 0) { // Resource A
                 REG_RD(VTSS_REW_MAP_VAL_A(addr), &value);
-                sprintf(buf, "    MAP_RES_A[%u]:MAP_VAL_A", addr);
+                VTSS_SPRINTF(buf, "    MAP_RES_A[%u]:MAP_VAL_A", addr);
                 pr("%-32s: %9u  %9u  %2u  %4u  %3u  %3u\n",
                    buf,
                    VTSS_X_REW_MAP_VAL_A_OAM_COLOR(value),
@@ -3576,7 +3655,7 @@ static vtss_rc fa_debug_qos_egress_mapping(vtss_state_t              *vtss_state
                    VTSS_X_REW_MAP_VAL_A_PCP_VAL(value));
             } else { // Resource B
                 REG_RD(VTSS_REW_MAP_VAL_B(addr), &value);
-                sprintf(buf, "    MAP_RES_B[%u]:MAP_VAL_B", addr);
+                VTSS_SPRINTF(buf, "    MAP_RES_B[%u]:MAP_VAL_B", addr);
                 pr("%-32s: %9u  %9u  %2u  %4u  %3u  %3u\n",
                    buf,
                    VTSS_X_REW_MAP_VAL_B_OAM_COLOR(value),
@@ -3604,7 +3683,7 @@ static void fa_debug_qos_mapping(vtss_state_t              *vtss_state,
         if (m->ix[res].entry == NULL) {
             continue; /* Resource not present */
         }
-        sprintf(buf, "QoS %s Mapping Tables Res %u", m->name, res);
+        VTSS_SPRINTF(buf, "QoS %s Mapping Tables Res %u", m->name, res);
         vtss_debug_print_header(pr, buf);
         if (info->full) {
             if (m->kind == VTSS_QOS_MAP_KIND_INGRESS) {
@@ -3865,9 +3944,9 @@ static vtss_rc fa_debug_qos(vtss_state_t *vtss_state,
                 for (pcp = VTSS_PCP_START; pcp < VTSS_PCP_END; pcp++) {
                     const char *delim = (pcp == VTSS_PCP_START) ? " | " : ",";
                     REG_RD(VTSS_ANA_CL_PCP_DEI_MAP_CFG(chip_port, (8 * dei + pcp)), &value);
-                    class_ct += snprintf(class_buf + class_ct, sizeof(class_buf) - class_ct, "%s%u", delim,
+                    class_ct += VTSS_SNPRINTF(class_buf + class_ct, sizeof(class_buf) - class_ct, "%s%u", delim,
                                         VTSS_X_ANA_CL_PCP_DEI_MAP_CFG_PCP_DEI_QOS_VAL(value));
-                    dpl_ct   += snprintf(dpl_buf   + dpl_ct,   sizeof(dpl_buf)   - dpl_ct,   "%s%u",  delim,
+                    dpl_ct   += VTSS_SNPRINTF(dpl_buf   + dpl_ct,   sizeof(dpl_buf)   - dpl_ct,   "%s%u",  delim,
                                         VTSS_X_ANA_CL_PCP_DEI_MAP_CFG_PCP_DEI_DP_VAL(value));
                 }
             }
@@ -4371,7 +4450,7 @@ static vtss_rc fa_debug_qos(vtss_state_t *vtss_state,
             for (i = VTSS_QUEUE_START; i < VTSS_QUEUE_END; i++) {
                 const char *delim = (i == VTSS_QUEUE_START) ? "" : " ";
                 REG_RD(VTSS_HSCH_DWRR_ENTRY(i), &value);
-                cost_ct += snprintf(cost_buf + cost_ct, sizeof(cost_buf) - cost_ct, "%s%2u",
+                cost_ct += VTSS_SNPRINTF(cost_buf + cost_ct, sizeof(cost_buf) - cost_ct, "%s%2u",
                                 delim,
                                 VTSS_X_HSCH_DWRR_ENTRY_DWRR_COST(value));
             }
@@ -4430,7 +4509,7 @@ static vtss_rc fa_debug_qos(vtss_state_t *vtss_state,
             u32  port, tgt;
             if (info->port_list[port_no]) {
                 port = VTSS_CHIP_PORT(port_no);
-                sprintf(buf, "Port %u (%u)", port, port_no);
+                VTSS_SPRINTF(buf, "Port %u (%u)", port, port_no);
                 vtss_fa_debug_reg_header(pr, buf);
                 if (vtss_fa_port_is_high_speed(vtss_state, port)) {
                     tgt = VTSS_TO_HIGH_DEV(port);
@@ -4560,16 +4639,16 @@ static vtss_rc fa_debug_qos(vtss_state_t *vtss_state,
                 REG_RD(VTSS_REW_PCP_MAP_DE1(port_no, i), &pcp_de1);
                 REG_RD(VTSS_REW_DEI_MAP_DE0(port_no, i), &dei_de0);
                 REG_RD(VTSS_REW_DEI_MAP_DE1(port_no, i), &dei_de1);
-                pcp_de0_ct += snprintf(pcp_de0_buf + pcp_de0_ct, sizeof(pcp_de0_buf) - pcp_de0_ct, "%s%u",
+                pcp_de0_ct += VTSS_SNPRINTF(pcp_de0_buf + pcp_de0_ct, sizeof(pcp_de0_buf) - pcp_de0_ct, "%s%u",
                                 delim,
                                 VTSS_X_REW_PCP_MAP_DE0_PCP_DE0(pcp_de0));
-                pcp_de1_ct += snprintf(pcp_de1_buf + pcp_de1_ct, sizeof(pcp_de1_buf) - pcp_de1_ct, "%s%u",
+                pcp_de1_ct += VTSS_SNPRINTF(pcp_de1_buf + pcp_de1_ct, sizeof(pcp_de1_buf) - pcp_de1_ct, "%s%u",
                                 delim,
                                 VTSS_X_REW_PCP_MAP_DE1_PCP_DE1(pcp_de1));
-                dei_de0_ct += snprintf(dei_de0_buf + dei_de0_ct, sizeof(dei_de0_buf) - dei_de0_ct, "%s%u",
+                dei_de0_ct += VTSS_SNPRINTF(dei_de0_buf + dei_de0_ct, sizeof(dei_de0_buf) - dei_de0_ct, "%s%u",
                                 delim,
                                 VTSS_X_REW_DEI_MAP_DE0_DEI_DE0(dei_de0));
-                dei_de1_ct += snprintf(dei_de1_buf + dei_de1_ct, sizeof(dei_de1_buf) - dei_de1_ct, "%s%u",
+                dei_de1_ct += VTSS_SNPRINTF(dei_de1_buf + dei_de1_ct, sizeof(dei_de1_buf) - dei_de1_ct, "%s%u",
                                 delim,
                                 VTSS_X_REW_DEI_MAP_DE0_DEI_DE0(dei_de1));
             }
@@ -4655,10 +4734,10 @@ static vtss_rc fa_qos_init(vtss_state_t *vtss_state)
         vtss_state->qos.fp.port_conf[port_no].add_frag_size = 1;    // P_MIN_SIZE default value is 1
 #endif
     }
-    memset(&vtss_state->qos.tas.tas_lists, 0, sizeof(vtss_state->qos.tas.tas_lists));
-    memset(&vtss_state->qos.tas.tas_profiles, 0, sizeof(vtss_state->qos.tas.tas_profiles));
-    memset(&vtss_state->qos.tas.tas_entry_blocks, 0, sizeof(vtss_state->qos.tas.tas_entry_blocks));
-    memset(&vtss_state->qos.tas.tas_entry_rows, 0, sizeof(vtss_state->qos.tas.tas_entry_rows));
+    VTSS_MEMSET(&vtss_state->qos.tas.tas_lists, 0, sizeof(vtss_state->qos.tas.tas_lists));
+    VTSS_MEMSET(&vtss_state->qos.tas.tas_profiles, 0, sizeof(vtss_state->qos.tas.tas_profiles));
+    VTSS_MEMSET(&vtss_state->qos.tas.tas_entry_blocks, 0, sizeof(vtss_state->qos.tas.tas_entry_blocks));
+    VTSS_MEMSET(&vtss_state->qos.tas.tas_entry_rows, 0, sizeof(vtss_state->qos.tas.tas_entry_rows));
 
     for (i = 0; i < VTSS_TAS_NUMBER_OF_LISTS; i++) {
         vtss_state->qos.tas.tas_lists[i].profile_idx = TAS_PROFILE_IDX_NONE;
@@ -4693,7 +4772,13 @@ static vtss_rc fa_qos_port_map_set(vtss_state_t *vtss_state)
         // Always enable Rx frame preemption
         DEV_WR(ENABLE_CONFIG, port,
                VTSS_F_DEV1G_ENABLE_CONFIG_MM_RX_ENA(1) |
+               VTSS_F_DEV1G_ENABLE_CONFIG_MM_TX_ENA(1) |
                VTSS_F_DEV1G_ENABLE_CONFIG_KEEP_S_AFTER_D(0));
+
+        DEV_WRM(DEV_PFRAME_CFG, port,
+                VTSS_F_DEV1G_DEV_PFRAME_CFG_DEV_FRAGMENT_IFG(12),
+                VTSS_M_DEV1G_DEV_PFRAME_CFG_DEV_FRAGMENT_IFG);
+
         if (!VTSS_PORT_IS_2G5(port)) {
             REG_WRM(VTSS_DEV10G_MAC_ADV_CHK_CFG(VTSS_TO_HIGH_DEV(port)),
                     VTSS_F_DEV10G_MAC_ADV_CHK_CFG_SFD_CHK_ENA(0),
@@ -4743,6 +4828,7 @@ vtss_rc vtss_fa_qos_init(vtss_state_t *vtss_state, vtss_init_cmd_t cmd)
 #endif
 
 #if defined(VTSS_FEATURE_QOS_FRAME_PREEMPTION)
+        state->fp_port_conf_set = fa_qos_fp_port_conf_set;
         state->fp_port_status_get = fa_qos_fp_port_status_get;
 #endif
         break;

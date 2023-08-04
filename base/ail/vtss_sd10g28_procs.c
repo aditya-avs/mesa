@@ -347,6 +347,21 @@ vtss_rc vtss_calc_sd10g28_setup_lane (const vtss_sd10g28_setup_args_t config,
                                         preset.cfg_alos_thr_3_0            = 0x0    ;
                                         break;
 
+      case VTSS_SD10G28_FX100        : //r_txeq_reg related signals
+                                        preset.cfg_en_adv                  = 0;
+                                        preset.cfg_en_main                 = 1;
+                                        preset.cfg_en_dly                  = 0;
+                                        preset.cfg_tap_adv_3_0             = 0;
+                                        preset.cfg_tap_main                = 1;
+                                        preset.cfg_tap_dly_4_0             = 0;
+                                        //r_rxeq_reg related signals
+                                        preset.cfg_vga_ctrl_3_0            = 0xa      ;
+                                        preset.cfg_vga_cp_2_0              = 0      ;
+                                        preset.cfg_eq_res_3_0              = 0x2    ;    //CTLE gain control.
+                                        preset.cfg_eqR_byp                 = 1      ;
+                                        preset.cfg_eqC_force_3_0           = 0x8    ;
+                                        preset.cfg_alos_thr_3_0            = 0x3    ;
+                                        break;
 
                                         
       default                        : //r_txeq_reg related signals
@@ -451,8 +466,8 @@ vtss_rc vtss_calc_sd10g28_setup_lane (const vtss_sd10g28_setup_args_t config,
     
     ret_val->r_en_auto_cdr_rstn[0]          = 0;           //  Lane CDR auto reset function enable
       
-    ret_val->cfg_oscal_afe[0]               = 1;
-    ret_val->cfg_pd_osdac_afe[0]            = 0;
+    ret_val->cfg_oscal_afe[0]               = ret_val->fx_100[0] ? 0:1;
+    ret_val->cfg_pd_osdac_afe[0]            = ret_val->fx_100[0] ? 1:0;
     ret_val->cfg_resetb_oscal_afe[0]        = 0;
     ret_val->cfg_resetb_oscal_afe[1]        = 1;
     

@@ -246,8 +246,55 @@ $default_configs = "istax_multi.mk"
 #      $default_configs)               # Configs to build
 
 # Backwards compatibility with previous build was broken because master.mas merge
+#check("backwards-check",              # Name of check
+#      "eaa1d31e72@master",            # Appl release to use
+#      $default_configs)               # Configs to build
+
+# Backwards compatibility with previous build was broken due to MEPA-TS and
+# MEPA-SPLIT
+#check("backwards-check",              # Name of check
+#      "004db027bb@master",            # Appl release to use
+#      $default_configs)               # Configs to build
+
+# Backwards compatibility with previous build was broken due to change
+# directories in MEPA
+#check("backwards-check",              # Name of check
+#      "e5a4eed5a4@master",            # Appl release to use
+#      $default_configs)               # Configs to build
+
+# Backwards compatibility with previous build was broken due to change
+# of MESA-PHY functions to VTSS-PHY functions
+#check("backwards-check",              # Name of check
+#      "ed80b69366@master.mesa-phy-remove", # Appl release to use
+#      $default_configs)               # Configs to build
+
+# As part of the MEPA clean-up a trance init has changed, and a few types has
+# been renamed.
+#check("backwards-check",              # Name of check
+#      "8071441ea6@master.mepa-init-cleanup", # Appl release to use
+#      $default_configs)               # Configs to build
+
+# As part of the PoE upgrade, a few types has been modified
+#check("backwards-check",              # Name of check
+#      "e365359205@master.pds-family", # Appl release to use
+#      $default_configs)               # Configs to build
+# More PoE updates
+#check("backwards-check",              # Name of check
+#      "27e2ceb283@master", # Appl release to use
+#      $default_configs)               # Configs to build
+# Yet another round of PoE updates
+#check("backwards-check",              # Name of check
+#      "4716b2d3a4@2022.09-poe-integration", # Appl release to use
+#      $default_configs)               # Configs to build
+
+# PoE bt support requires yet another type modifications
+#check("backwards-check",              # Name of check
+#      "b90a3945c6@poe-update", # Appl release to use
+#      $default_configs)               # Configs to build
+
+#Support for I2C argument changes in read/write APIs
 check("backwards-check",              # Name of check
-      "eaa1d31e72@master",            # Appl release to use
+      "4b8386abbf@master.viper", # Appl release to use
       $default_configs)               # Configs to build
 
 # This will be activated when we get to the 4.2 release

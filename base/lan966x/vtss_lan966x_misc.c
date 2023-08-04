@@ -487,7 +487,7 @@ static vtss_rc lan966x_sgpio_conf_set(vtss_state_t *vtss_state,
             case VTSS_SGPIO_MODE_1_ACTIVITY_INV:
                 val -= 2;
                 cfg |= GCB_SIO_PORT_CFG_BIT_POLARITY(1 << bit_idx);
-                // Inverse polarity and fall through
+                /* fall-through */
             default:
                 val = VTSS_ENCODE_BITFIELD(val, (bit_idx * 3), 3);
                 cfg |= GCB_SIO_PORT_CFG_BIT_SOURCE(val);
@@ -521,6 +521,8 @@ static vtss_rc lan966x_sgpio_read(vtss_state_t *vtss_state,
     return VTSS_RC_OK;
 }
 #endif
+
+#if VTSS_OPT_DEBUG_PRINT
 
 /* - Debug print --------------------------------------------------- */
 
@@ -568,6 +570,7 @@ vtss_rc vtss_lan966x_misc_debug_print(vtss_state_t *vtss_state,
 {
     return vtss_debug_print_group(VTSS_DEBUG_GROUP_MISC, lan966x_debug_misc, vtss_state, pr, info);
 }
+#endif // VTSS_OPT_DEBUG_PRINT
 
 /* - Initialization ------------------------------------------------ */
 

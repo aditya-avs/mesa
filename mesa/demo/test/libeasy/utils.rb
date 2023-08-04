@@ -144,37 +144,6 @@ def dut_cap_check_exit(cap)
     end
 end
 
-def check_val(name, val, exp, fmt)
-    v = (fmt % val);
-    e = (fmt % exp);
-    msg = "#{name}: #{v}, expected: #{e}"
-    if (val == exp)
-        t_i(msg)
-    else
-        t_e(msg)
-    end
-end
-
-def check_counter(name, val, exp)
-    check_val(name, val, exp, "%u")
-end
-
-def check_val_hex_u8(name, val, exp)
-    check_val(name, val, exp, "0x%02x")
-end
-
-def check_val_hex_u16(name, val, exp)
-    check_val(name, val, exp, "0x%04x")
-end
-
-def check_val_hex_u32(name, val, exp)
-    check_val(name, val, exp, "0x%08x")
-end
-
-def check_val_str(name, val, exp)
-    check_val(name, val, exp, "%s")
-end
-
 def loop_pair_check
     port_list = $ts.dut.looped_port_list
 
@@ -266,8 +235,7 @@ def cmd_rx_ifh_push(ifh={})
 
     if (ifh.key?:port_idx)
         # Match chip port
-        port_cnt = cap_get("PORT_CNT")
-        pmap = $ts.dut.call("mesa_port_map_get", port_cnt)
+        pmap = $ts.port_map
         port = $ts.dut.port_list[ifh[:port_idx]]
         cmd += " #{port_name} #{pmap[port]["chip_port"]}"
     end
@@ -303,7 +271,7 @@ def cmd_tx_ifh_push(info={})
     cmd += "data hex #{ifh[0].take(ifh[1]).pack("c*").unpack("H*").first} "
 end
 
-def ethtool_stat ts, diff = nil, ns = nil
+def ethtool_stat ts, diff = nil, if_list = [], ns = nil
     tot = {}
 
     ns_ = ""
@@ -311,20 +279,21 @@ def ethtool_stat ts, diff = nil, ns = nil
         ns_ = "ip netns exec #{ns}"
     end
 
-    names = []
-    ts.pc.run("#{ns_} ip link")[:out].each_line do |l|
-        name = ""
-        if /^\d+:\s+(\w+):/ =~ l
-            name = $1
-        elsif /^\d+:\s+(\w+\.\d+)@/ =~ l
-            name = $1
-        end
-        if (ts.pc.p.include?(name))
-            names << name
+    if (if_list.length == 0)
+        ts.pc.run("#{ns_} ip link")[:out].each_line do |l|
+            name = ""
+            if /^\d+:\s+(\w+):/ =~ l
+                name = $1
+            elsif /^\d+:\s+(\w+\.\d+)@/ =~ l
+                name = $1
+            end
+            if (ts.pc.p.include?(name))
+                if_list << name
+            end
         end
     end
 
-    names.each do |e|
+    if_list.each do |e|
         begin
             ts.pc.run("#{ns_} ethtool -S #{e}")[:out].each_line do |l|
                 tot[e] = { "rx" => {}, "tx" => {}} if tot[e].nil?
@@ -620,41 +589,75 @@ def bit_rate bytes, duration
     bytes.to_f * 8 * 1000000 / duration
 end
 
+# Calculate frame rate (in frames per second) from number of frames during duration uS
+def frame_rate frames, duration
+    frames.to_f * 1000000 / duration
+end
+
 # tx_capture() transmits and capture frames
 #
 # ts: test setup
-# tx: transmitting device on test PC, e.g. eth_red
-# cap: capturing device on test PC, e.g. eth_green
-# num_frames: number of frames to transmit and capture
-# frame: frame to transmit
-# min_pause: minimum pause between frames to detect.
+# tx: Transmit on this interface on the pc
+# capture: Capture on this interface on the pc. Set to nil ti disable.
+# no_rx: (optional) Check that no frames are received on these interfaces on the pc. Set to nil disable.
+# frame: Test frame specified as an EasyFrame FRAME
+# frame_size: Size of transmitted frame. Padded with enough zeroes.
+# num_frames: Number of frames to transmit.
+# pause: (optional) Count number of pauses greater than this value. Set to nil to disable.
 #
-# returns a hash (see below)
-def tx_capture ts, tx, cap, num_frames, frame, min_pause = nil
-    ts.pc.run "ef -c #{cap},20,adapter_unsynced tx #{tx} rep #{num_frames} #{frame}"
+# Returns hash of values calculated from capture or nil if no capture
+def tx_capture ts, tx, capture, no_rx, frame, frame_size, num_frames, pause = nil
+    if capture
+        cap = "-c #{capture},20,adapter_unsynced"
+    end
 
+    if no_rx
+        if no_rx.is_a?(Array)
+            rx = no_rx.map { |x| "rx #{x}" }.join(" ") # Array
+        else
+            rx = "rx #{no_rx}" # Single value
+        end
+    end
+
+    if num_frames > 1
+        rep = "rep #{num_frames}"
+    end
+
+    # Calculate current frame size
+    res = ts.pc.run "ef hex #{frame} data repeat 64 0" # Add 64 bytes to eliminate padding
+    fsz = (res[:out].chomp.length / 2) - 64 # Subtract 64 bytes to find length excluding padding
+    payload = frame_size - fsz
+
+    ts.pc.run "ef #{cap} #{rx} tx #{tx} #{rep} #{frame} data repeat #{payload} 0"
+
+    return nil if capture.nil?
+
+    pkts = ts.pc.get_pcap "#{capture}.pcap"
     bytes = 0
     duration = 0.0
     pauses = 0.0
-    pkts = ts.pc.get_pcap "#{cap}.pcap"
 
     pkts.each do |p|
         #t_i "TS: %4d, TSD: %4d, len: %4d #{hexstr(p[:data])}" % [p[:us_rel], p[:us_delta], p[:len_on_wire]]
         bytes += p[:len_on_wire]
         duration = p[:us_rel] # Just save the last one
-        pauses += 1 if min_pause && (p[:us_delta] >= (min_pause / 1000))
+        pauses += 1 if pause && (p[:us_delta] >= (pause / 1000))
     end
 
-    rate = bit_rate(bytes, duration)
-    pps = pauses * 1_000_000 / duration # pauses per second. duration is in uS
-    t_i "#{cap}: Got #{pkts.size} packets and #{bytes} bytes during #{duration} usec"
+    if duration == 0 # Probably only captured a single frame
+        bps = 0
+        fps = 0
+        pps = 0
+    else
+        bps = bit_rate(bytes, duration)
+        fps = frame_rate(pkts.size, duration)
+        pps = pauses * 1_000_000 / duration
+    end
 
-    { :num_packets => pkts.size,
-      :bit_rate    => rate, # bits pr second
-      :duration    => duration, # uS
-      :pps         => pps # pauses per second
-    }
+    #t_i "#{capture}: frames: #{pkts.size}, bytes: #{bytes}, duration in usec: #{duration}, bps: #{bps}, fps: #{fps}, pps: #{pps}"
+    {:frames => pkts.size, :bytes => bytes, :duration => duration, :bps => bps, :fps => fps, :pps => pps}
 end
+
 
 # Wait for network interfaces to come up or down
 # ts: test setup
@@ -955,6 +958,16 @@ def qspi_init
     $ts.dut.run("sh -c 'cat /overlays/qspi_overlay.dtbo > #{ol}/dtbo'")
 end
 
+def io_read_val(txt)
+    i = txt.index("value: ")
+    if (i == nil)
+        txt = "0xdeaddead"
+    else
+        txt = txt[(i + 7)..(i + 16)]
+    end
+    txt
+end
+
 def io_fpga_rw(cmd)
     if ($io_fpga_dev == nil)
         # Detect device (device 0 currently fails, so we count down)
@@ -972,17 +985,21 @@ def io_fpga_rw(cmd)
             t_e("IO-FPGA device not detected")
             return
         else
+            txt = $ts.pc.run("mera-iofpga-rw #{$io_fpga_dev} read 0x218")[:out]
+            val = io_read_val(txt).to_i(16)
             t_i("IO-FPGA device: #{$io_fpga_dev}")
+            exp = 47 # Expect at least this version
+            txt = "IO-FPGA version: #{val}, expected >= #{exp}"
+            if (val < exp)
+                t_e(txt)
+            else
+                t_i(txt)
+            end
         end
     end
     txt = $ts.pc.run("mera-iofpga-rw #{$io_fpga_dev} #{cmd}")[:out]
     if (cmd.include? "read")
-        i = txt.index("value: ")
-        if (i == nil)
-            txt = "0xdeaddead"
-        else
-            txt = txt[(i + 7)..(i + 16)]
-        end
+        txt = io_read_val(txt)
     end
     txt
 end
@@ -990,12 +1007,7 @@ end
 def io_sram_rw(cmd)
     txt = $ts.dut.run("mera-sram-rw #{cmd}")[:out]
     if (cmd.include? "read")
-        i = txt.index("value: ")
-        if (i == nil)
-            txt = "0xdeaddead"
-        else
-            txt = txt[(i + 7)..(i + 16)]
-        end
+        txt = io_read_val(txt)
     end
     txt
 end

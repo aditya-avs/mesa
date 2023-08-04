@@ -316,7 +316,7 @@ void vtss_jr2_debug_reg_header(const vtss_debug_printf_t pr, const char *name)
 {
     char buf[64];
 
-    sprintf(buf, "%-32s  Tgt   Addr  ", name);
+    VTSS_SPRINTF(buf, "%-32s  Tgt   Addr  ", name);
     vtss_debug_print_reg_header(pr, buf);
 }
 
@@ -327,7 +327,7 @@ void vtss_jr2_debug_reg(vtss_state_t *vtss_state,
     char buf[100];
 
     if (vtss_jr2_rd(vtss_state, addr, &value) == VTSS_RC_OK) {
-        sprintf(buf, "%-32s  0x%02x  0x%04x", name, (addr >> 14) & 0x3f, addr & 0x3fff);
+        VTSS_SPRINTF(buf, "%-32s  0x%02x  0x%04x", name, (addr >> 14) & 0x3f, addr & 0x3fff);
         vtss_debug_print_reg(pr, buf, value);
     }
 }
@@ -337,7 +337,7 @@ void vtss_jr2_debug_reg_inst(vtss_state_t *vtss_state,
 {
     char buf[64];
 
-    sprintf(buf, "%s_%u", name, i);
+    VTSS_SPRINTF(buf, "%s_%u", name, i);
     vtss_jr2_debug_reg(vtss_state, pr, addr, buf);
 }
 
@@ -346,10 +346,14 @@ void vtss_jr2_debug_cnt(const vtss_debug_printf_t pr, const char *col1, const ch
 {
     char buf[80];
 
-    sprintf(buf, "rx_%s:", col1);
-    pr("%-28s%10" PRIu64 "   ", buf, c1->value);
+    if (col1 == NULL) {
+        pr("%-41s", "");
+    } else {
+        VTSS_SPRINTF(buf, "rx_%s:", col1);
+        pr("%-28s%10" PRIu64 "   ", buf, c1->value);
+    }
     if (col2 != NULL) {
-        sprintf(buf, "tx_%s:", strlen(col2) ? col2 : col1);
+        VTSS_SPRINTF(buf, "tx_%s:", VTSS_STRLEN(col2) ? col2 : col1);
         pr("%-28s%10" PRIu64, buf, c2->value);
     }
     pr("\n");
@@ -377,7 +381,7 @@ static void jr2_debug_reg_clr(vtss_state_t *vtss_state,
             tgt &= 0xf0;
             addr &= 0x3ffff;
         }
-        sprintf(buf, "%-32s  0x%02x 0x%05x", name, tgt, addr);
+        VTSS_SPRINTF(buf, "%-32s  0x%02x 0x%05x", name, tgt, addr);
         vtss_debug_print_reg(pr, buf, value);
     }
 } // jr2_debug_reg_clr
@@ -531,7 +535,7 @@ static vtss_rc jr2_calendar_auto(vtss_state_t *vtss_state)
     VTSS_I("Using Auto calendar");
 
     // Setup the calendar, i.e. the BW to each device
-    memset(cal, 0, sizeof(cal));
+    VTSS_MEMSET(cal, 0, sizeof(cal));
     for (port_no = 0; port_no < (VTSS_PORTS + 4); port_no++) {
         spd = jr2_cal_speed_get(vtss_state, port_no, &port);
         if (port == CHIP_PORT_UNUSED || spd == JR2_CAL_SPEED_NONE) {
@@ -640,7 +644,7 @@ static vtss_rc jr2_calendar_do_set(vtss_state_t *vtss_state, u8 *cal, u32 length
             VTSS_M_QSYS_CALCFG_CAL_CTRL_CAL_MODE);
 
     // Transfer calendar to vtss_state, so that it can be printed on request.
-    memcpy(vtss_state->port.calendar.cbc, cal, length);
+    VTSS_MEMCPY(vtss_state->port.calendar.cbc, cal, length);
     vtss_state->port.calendar.len     = length;
     vtss_state->port.calendar.manual  = TRUE;
     vtss_state->port.calendar.dynamic = dynamic;
@@ -860,7 +864,7 @@ static vtss_rc jr2_calendar_rtl_cfg_get(vtss_state_t *vtss_state, cbc_rtl_cfg_t 
     cbc_rtl_port_cfg_t  *port_cfg;
     vtss_phys_port_no_t chip_port;
 
-    memset(rtl_cfg, 0, sizeof(*rtl_cfg));
+    VTSS_MEMSET(rtl_cfg, 0, sizeof(*rtl_cfg));
     rtl_cfg->fc_latency_cycles = 57;
     rtl_cfg->cbc_len           = 209; // 4 * 52.5 - 1
     rtl_cfg->max_bw            = 52250;
@@ -969,7 +973,7 @@ static vtss_rc jr2_calendar_rtl_cfg_get(vtss_state_t *vtss_state, cbc_rtl_cfg_t 
     cbc_rtl_port_cfg_t  *port_cfg;
     vtss_phys_port_no_t chip_port;
 
-    memset(rtl_cfg, 0, sizeof(*rtl_cfg));
+    VTSS_MEMSET(rtl_cfg, 0, sizeof(*rtl_cfg));
 
     rtl_cfg->fc_latency_cycles = 40;
     rtl_cfg->cbc_len           = 335;
@@ -1090,7 +1094,7 @@ static vtss_rc jr2_calendar_req_cfg_init(vtss_state_t *vtss_state, cbc_req_cfg_t
 {
     u32 vd1_bw = vtss_state->init_conf.loopback_bw_mbps;
 
-    memset(req_cfg, 0, sizeof(*req_cfg));
+    VTSS_MEMSET(req_cfg, 0, sizeof(*req_cfg));
 
     // Add IDLE B/W. This is to ensure the CPU time for register access.
     req_cfg->port_cfg[CBC_IDLE].bw             = 1000;
@@ -1532,10 +1536,10 @@ static vtss_rc jr2_calendar_do_calc(cbc_rtl_cfg_t *rtl_cfg, cbc_req_cfg_t *req_c
     }
 
     // Initialize all CBC slots to -1 (=unassigned)
-    memset(cbc->cbc, CBC_SLOT_FREE, sizeof(cbc->cbc));
+    VTSS_MEMSET(cbc->cbc, CBC_SLOT_FREE, sizeof(cbc->cbc));
 
     // Assign bandwidths in reverse numerical order.
-    memset(cbc_grps, 0, sizeof(cbc_grps));
+    VTSS_MEMSET(cbc_grps, 0, sizeof(cbc_grps));
 
     // Populate cbc_grps. First one is IDLE
     cbc_grps[0].bw        =  req_cfg->port_cfg[CBC_IDLE].bw;
@@ -1627,7 +1631,7 @@ static vtss_rc jr2_calendar_do_calc(cbc_rtl_cfg_t *rtl_cfg, cbc_req_cfg_t *req_c
             break;
         }
 
-        memset(taxi_ports, 0, sizeof(taxi_ports));
+        VTSS_MEMSET(taxi_ports, 0, sizeof(taxi_ports));
 
         // Within group, further group ports according to which Taxi ring they belong to
         p = cbc_grp->port_list;
@@ -1751,9 +1755,9 @@ static vtss_rc jr2_calendar_check(cbc_rtl_cfg_t *rtl_cfg, cbc_req_cfg_t *req_cfg
     vtss_phys_port_no_t chip_port;
     cbc_req_port_cfg_t  *port_cfg;
 
-    memset(slot_cnt, 0, sizeof(slot_cnt));
-    memset(first_slot, -1, sizeof(first_slot));
-    memset(latest_slot, -1, sizeof(latest_slot));
+    VTSS_MEMSET(slot_cnt, 0, sizeof(slot_cnt));
+    VTSS_MEMSET(first_slot, -1, sizeof(first_slot));
+    VTSS_MEMSET(latest_slot, -1, sizeof(latest_slot));
 
     // Create per-port slot count and minimum distances
     for (i = 0; i < rtl_cfg->cbc_len; i++) {
@@ -1842,7 +1846,7 @@ static vtss_rc jr2_calendar_check(cbc_rtl_cfg_t *rtl_cfg, cbc_req_cfg_t *req_cfg
         VTSS_D("Checking range [%u; %u]", pos, range_end);
 
         // Count slots per port in the range
-        memset(slot_cnt, 0, sizeof(slot_cnt));
+        VTSS_MEMSET(slot_cnt, 0, sizeof(slot_cnt));
         for (offset = pos; offset <= range_end; offset++) {
             chip_port = cbc->cbc[offset >= rtl_cfg->cbc_len ? offset - rtl_cfg->cbc_len : offset];
             slot_cnt[chip_port]++;
@@ -2042,7 +2046,9 @@ static vtss_rc jr2_init_conf_set(vtss_state_t *vtss_state)
     /*lint -esym(459, vtss_jr2_rd, vtss_jr2_wr) */
     u32 value, pending, j, i;
     u32 gpio_oe, gpio_oe1, gpio_out, gpio_out1, if_ctrl = 0, if_cfgstat = 0;
+#if defined(VTSS_ARCH_JAGUAR_2_C) || VTSS_OPT_TRACE
     u16 revision;
+#endif
 
     // Note; by design - all gazwrap init registers have the same field layout
     struct {
@@ -2114,7 +2120,9 @@ static vtss_rc jr2_init_conf_set(vtss_state_t *vtss_state)
 
     /* Read chip ID to check CPU interface */
     VTSS_RC(vtss_jr2_chip_id_get(vtss_state, &vtss_state->misc.chip_id));
+#if defined(VTSS_ARCH_JAGUAR_2_C) || VTSS_OPT_TRACE
     revision = vtss_state->misc.chip_id.revision;
+#endif
     VTSS_I("chip_id: 0x%04x, revision: 0x%04x",
            vtss_state->misc.chip_id.part_number, revision);
 #if !defined(VTSS_ARCH_SERVAL_T)
@@ -2337,12 +2345,6 @@ vtss_rc vtss_jaguar2_inst_create(vtss_state_t *vtss_state)
     vtss_state->cil.restart_conf_set = jr2_restart_conf_set;
     vtss_state->cil.debug_info_print = jr2_debug_info_print;
     vtss_state->port.map_set = jr2_port_map_set;
-
-#if defined(VTSS_FEATURE_WIS)
-    if (vtss_phy_inst_ewis_create(vtss_state) != VTSS_RC_OK) {
-        VTSS_E("vtss_phy_inst_ewis_create() failed");
-    }
-#endif
 
     /* Create function groups */
     return vtss_jr2_init_groups(vtss_state, VTSS_INIT_CMD_CREATE);

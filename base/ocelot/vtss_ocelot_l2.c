@@ -326,7 +326,7 @@ static vtss_rc srvl_mac_table_age(vtss_state_t *vtss_state,
 
 #if defined(VTSS_FEATURE_VLAN_SVL)
     /* Age on FID, if possible */
-    fid = vtss_state->l2.vlan_table[vid].conf.fid;
+    fid = vtss_state->l2.vlan_table[vid].fid;
     if (fid == 0 || fid > SRVL_FID_MAX) {
         fid = vid;
     }
@@ -511,7 +511,7 @@ static vtss_rc srvl_vlan_port_conf_apply(vtss_state_t *vtss_state,
     value = (VTSS_F_REW_PORT_TAG_CFG_TAG_TPID_CFG(tpid) |
              VTSS_F_REW_PORT_TAG_CFG_TAG_CFG(
                  conf->untagged_vid == VTSS_VID_ALL ? TAG_CFG_DISABLE :
-                 conf->untagged_vid == VTSS_VID_NULL ? TAG_CFG_ALL : TAG_CFG_ALL_NPV_NNUL));
+                 conf->untagged_vid == VTSS_VID_NULL ? TAG_CFG_ALL_NNUL : TAG_CFG_ALL_NPV_NNUL));
     SRVL_WRM(VTSS_REW_PORT_TAG_CFG(port), value, 
              VTSS_M_REW_PORT_TAG_CFG_TAG_TPID_CFG | 
              VTSS_M_REW_PORT_TAG_CFG_TAG_CFG);
@@ -547,15 +547,15 @@ static vtss_rc srvl_vlan_table_idle(vtss_state_t *vtss_state)
 static vtss_rc srvl_vlan_mask_update(vtss_state_t *vtss_state,
                                      vtss_vid_t vid, BOOL member[VTSS_PORT_ARRAY_SIZE])
 {
-    vtss_vlan_entry_t    *vlan_entry = &vtss_state->l2.vlan_table[vid];
-    vtss_vlan_vid_conf_t *conf = &vlan_entry->conf;
+    vtss_vlan_entry_t *e = &vtss_state->l2.vlan_table[vid];
 
     /* Index and properties */
     SRVL_WR(VTSS_ANA_ANA_TABLES_VLANTIDX, 
             VTSS_F_ANA_ANA_TABLES_VLANTIDX_V_INDEX(vid) |
-            (vlan_entry->isolated ? VTSS_F_ANA_ANA_TABLES_VLANTIDX_VLAN_PRIV_VLAN : 0) |
-            (conf->learning ? 0 : VTSS_F_ANA_ANA_TABLES_VLANTIDX_VLAN_LEARN_DISABLED) |
-            (conf->mirror ? VTSS_F_ANA_ANA_TABLES_VLANTIDX_VLAN_MIRROR : 0));
+            (e->flags & VLAN_FLAGS_ISOLATED ? VTSS_F_ANA_ANA_TABLES_VLANTIDX_VLAN_PRIV_VLAN : 0) |
+            (e->flags & VLAN_FLAGS_LEARN ? 0 : VTSS_F_ANA_ANA_TABLES_VLANTIDX_VLAN_LEARN_DISABLED) |
+            (e->flags & VLAN_FLAGS_MIRROR ? VTSS_F_ANA_ANA_TABLES_VLANTIDX_VLAN_MIRROR : 0) |
+            (e->flags & VLAN_FLAGS_FILTER ? VTSS_F_ANA_ANA_TABLES_VLANTIDX_VLAN_SRC_CHK : 0));
 
     /* VLAN mask */
     SRVL_WR(VTSS_ANA_ANA_TABLES_VLANACCESS,
@@ -565,7 +565,7 @@ static vtss_rc srvl_vlan_mask_update(vtss_state_t *vtss_state,
 #if defined(VTSS_FEATURE_VLAN_SVL)
     /* FID */
     SRVL_WR(VTSS_ANA_FID_MAP_FID_MAP(vid),
-            VTSS_F_ANA_FID_MAP_FID_MAP_FID_C_VAL(conf->fid > SRVL_FID_MAX ? 0 : conf->fid));
+            VTSS_F_ANA_FID_MAP_FID_MAP_FID_C_VAL(e->fid > SRVL_FID_MAX ? 0 : e->fid));
 #endif /* VTSS_FEATURE_VLAN_SVL */
 
     return srvl_vlan_table_idle(vtss_state);
@@ -627,7 +627,7 @@ static vtss_rc srvl_ip_mc_update(vtss_state_t *vtss_state,
     vtss_port_no_t        port_no;
 
     if (cmd == VTSS_IPMC_CMD_CHECK) {
-        memset(&res, 0, sizeof(res));
+        VTSS_MEMSET(&res, 0, sizeof(res));
         if (ipmc->dst_add) {
             res.add_key[key_size] = 1;
         }
@@ -721,7 +721,7 @@ static vtss_rc srvl_mirror_ingress_set(vtss_state_t *vtss_state)
      * ports.)
      */
 
-    memset(set, 0, sizeof(set));
+    VTSS_MEMSET(set, 0, sizeof(set));
     for (vp_idx = VTSS_MPLS_VPROFILE_RESERVED_CNT; vp_idx < VTSS_MPLS_VPROFILE_CNT; vp_idx++) {
         vtss_mpls_vprofile_t *vp = &VP_P(vp_idx);
         set[vp_idx] = (vp->port < vtss_state->port_count)  &&  vtss_state->l2.mirror_ingress[vp->port];
@@ -1048,12 +1048,12 @@ static vtss_rc srvl_debug_vlan(vtss_state_t *vtss_state,
             /* Normal ports */
             if ((port_no = vtss_cmn_port2port_no(vtss_state, info, port)) == VTSS_PORT_NO_NONE)
                 continue;
-            sprintf(buf, "Port %u (%u)", port, port_no);
+            VTSS_SPRINTF(buf, "Port %u (%u)", port, port_no);
         } else {
             /* CPU ports */
             if (!info->full)
                 continue;
-            sprintf(buf, "Port %u (CPU)", port);
+            VTSS_SPRINTF(buf, "Port %u (CPU)", port);
         }
 
         vtss_srvl_debug_reg_header(pr, buf);
@@ -1072,7 +1072,7 @@ static vtss_rc srvl_debug_vlan(vtss_state_t *vtss_state,
     
     for (vid = VTSS_VID_NULL; vid < VTSS_VIDS; vid++) {
         vlan_entry = &vtss_state->l2.vlan_table[vid];
-        if (!vlan_entry->enabled && !info->full)
+        if (!(vlan_entry->flags & VLAN_FLAGS_ENABLED) && !info->full)
             continue;
 
         SRVL_WR(VTSS_ANA_ANA_TABLES_VLANTIDX, VTSS_F_ANA_ANA_TABLES_VLANTIDX_V_INDEX(vid));
@@ -1090,12 +1090,13 @@ static vtss_rc srvl_debug_vlan(vtss_state_t *vtss_state,
         fid = vid;
 #endif /* VTSS_FEATURE_VLAN_SVL */
         if (header)
-            vtss_srvl_debug_print_port_header(vtss_state, pr, "VID   FID  Lrn  Mir  Prv  ");
+            vtss_srvl_debug_print_port_header(vtss_state, pr, "VID   FID  Lrn  Mir  Flt  Prv  ");
         header = 0;
 
-        pr("%-6u%-5u%-5u%-5u%-5u", vid, fid,
+        pr("%-6u%-5u%-5u%-5u%-5u%-5u", vid, fid,
            value & VTSS_F_ANA_ANA_TABLES_VLANTIDX_VLAN_LEARN_DISABLED ? 0 : 1,
            value & VTSS_F_ANA_ANA_TABLES_VLANTIDX_VLAN_MIRROR ? 1 : 0,
+           value & VTSS_F_ANA_ANA_TABLES_VLANTIDX_VLAN_SRC_CHK ? 1 : 0,
            value & VTSS_F_ANA_ANA_TABLES_VLANTIDX_VLAN_PRIV_VLAN ? 1 : 0);
         vtss_srvl_debug_print_mask(pr, mask);
 

@@ -6,7 +6,7 @@
 set -e
 
 if (( $# < 2 )); then
-   echo "Usage: $0 oc/op/j2/j48/st/ca/fa/mi/ms/mb/me [<test_server>] <test_script>"
+   echo "Usage: $0 oc/op/j2/j48/st/ca1/ca2/fa/mi/ms/me/mr/ml [<test_server>] <test_script> [brief]"
    exit
 fi
 
@@ -40,9 +40,14 @@ case $chip in
      img=mipsel_vsc7437.mfi
      ;;
 
-     ca)
+     ca|ca2)
      ts=dk-t35-3
      img=mipsel_vsc7429.mfi
+     ;;
+
+     ca1)
+     ts=dk-t35-4
+     img=mipsel_vsc7428.mfi
      ;;
 
      fa)
@@ -64,12 +69,6 @@ case $chip in
      dir=build-arm64
      ;;
 
-     mb)
-     ts=dk-t35-4
-     img=armv7_lan966x_bbb.itb
-     dir=build-arm
-     ;;
-
      ms)
      ts=dk-t35-5
      img=armv7_lan966x_sr.itb
@@ -77,7 +76,25 @@ case $chip in
      ;;
 
      me)
-     ts=dk-t33-0
+     ts=dk-t33-5
+     img=armv7_lan966x.itb
+     dir=build-arm
+     ;;
+
+     mr)
+     ts=dk-t33-4
+     img=armv7_lan9662.itb
+     dir=build-arm
+     ;;
+
+     ml)
+     ts=dk-t33-5
+     img=armv7_lan966x_lm.itb
+     dir=build-arm
+     ;;
+
+     ms8)
+     ts=dk-t33-5
      img=armv7_lan966x.itb
      dir=build-arm
      ;;
@@ -88,7 +105,15 @@ case $chip in
      ;;
 esac
 
-if [ $# == 2 ]; then
+cnt=$#
+suffix=""
+last=${!#}
+if [ $last == "brief" ]; then
+    suffix="--brief"
+    ((cnt--))
+fi
+
+if [ $cnt == 2 ]; then
   file=$2
 else
   ts=$2
@@ -120,7 +145,7 @@ et upload mesa/demo/$img
 cd -
 
 echo "----Run test----"
-./$file | libeasy/xml2console.rb
+./$file | libeasy/xml2console.rb $suffix
 if [ $rel == 1 ]; then
     et release
 fi

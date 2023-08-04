@@ -42,34 +42,12 @@ Aquantia Firmware and API:
             AQR412_A0:  4.0.4
             AQR412C_A0: 4.0.4
             AQR412_B0:  4.2.3
-    Aquantia documentation will be delivered by Aquantia.
+    Aquantia documentation will be delivered by Marvell Technology, Inc.
 
-Intel driver for GPY211 version 2.5.1.
-
-Disclaimers
-===========
-
-LAN9662 and LAN9668 in BETA
----------------------------
-
-LAN966x (LAN9662 and LAN9668) support is included in this release, but they
-are still not fully tested and should be treated as BETA quality.
-
-LAN966x in this release can be used for early access to evaluate the features
-and/or start SW integration. It is not suitable for production use.
-
-
-LAN8814 (PHY) in BETA with limited support
-------------------------------------------
-
-The support of LAN8814 in this release is considered to be in BETA quality. It
-can be used for early access to evaluate the features and/or start SW
-integration. It is not suitable for production use.
-
+Intel driver for GPY211 version 2.7.1.
+Intel documentation will be delivered by MaxLinear.
 
 General
 =======
 
-This release contains a number of bugfixes for the LAN966x family, but no new
-major features have been introduced.
-
+This is a bug fix release with no significant new features added.

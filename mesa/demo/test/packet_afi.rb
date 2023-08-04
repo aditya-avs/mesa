@@ -49,6 +49,7 @@ def frame_rx(idx, usec)
     if (pkts.size == cnt)
         t_i("Logged #{cnt} packets, expect #{usec} usec between each")
         t0 = 0
+        cnt = 0
         pkts.each_with_index do |p, i|
             t = p[:us_rel]
             txt = "t: #{t}"
@@ -57,7 +58,15 @@ def frame_rx(idx, usec)
             else
                 diff = (t - t0)
                 txt += ", diff: #{diff}"
+                error = false
                 if (diff < 0.9*usec or diff > 1.1*usec)
+                    cnt = (cnt + 1)
+                    if (cnt > 1)
+                        # Accept one dropped frame on test PC
+                        error = true
+                    end
+                end
+                if (error)
                     t_e(txt)
                 else
                     t_i(txt)

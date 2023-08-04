@@ -324,6 +324,11 @@ typedef enum {
     // Number of exposed (external) ports directly connected to the CPU
     MEBA_CAP_CPU_PORTS_COUNT,
 
+    // Number of exposed (external) poe ports on board
+    MEBA_CAP_BOARD_PORT_POE_COUNT,
+
+    // For backwards compatibility, add new capabilities here!
+
     MEBA_CAP_LAST   // Last MEBA capability (must be last in list)
 } meba_cap_t;
 
@@ -424,6 +429,15 @@ typedef enum {
     MEBA_EVENT_LAST
 } meba_event_t;
 
+typedef enum {
+    MEBA_PTP_IO_CAP_UNUSED       = 0x0,
+    MEBA_PTP_IO_CAP_TIME_IF_IN   = 0x1,
+    MEBA_PTP_IO_CAP_TIME_IF_OUT  = 0x2,
+    MEBA_PTP_IO_CAP_PIN_IN       = 0x4,
+    MEBA_PTP_IO_CAP_PIN_OUT      = 0x8,
+    MEBA_PTP_IO_CAP_PHY_SYNC     = 0x10
+} meba_ptp_io_cap_t;
+
 // Interrupt signalling callback type
 // source_id   [IN] The interrupt source which fired.
 // instance_no [IN] The interrupt instance which fired
@@ -474,9 +488,9 @@ typedef struct {
     meba_debug_t     debug;
     meba_clock_event_enable_t clock_event_enable; // TEMPORARY
     meba_clock_irq_handler_t  clock_irq_handler;  // TEMPORARY
-    mepa_trace_func_t trace_func; // PHY driver trace callback passed from application.
     mepa_lock_func_t  lock_enter; // lock callback function called before entering MEPA Api
     mepa_lock_func_t  lock_exit;  // unlock callback function called after executing MEPA Api
+    mepa_trace_func_t trace;
 } meba_board_interface_t;
 
  // INTERIM board enum - will be deleted eventually
@@ -511,6 +525,7 @@ typedef enum {
     VTSS_BOARD_LAN9668_8PORT_REF = 0x8290,
     VTSS_BOARD_LAN9668_ENDNODE_REF = 0x8291,
     VTSS_BOARD_LAN9668_ENDNODE_CARRIER_REF = 0x8309,
+    VTSS_BOARD_LAN9668_EDS2_REF = 0x8385,
 } vtss_board_type_t;
 
 typedef struct {
@@ -535,6 +550,17 @@ typedef struct {
     mesa_chip_no_t         poe_chip_port;
     mesa_bool_t            poe_support;
 } meba_port_entry_t;
+
+// Yes, this is a MEPA type defined here. In MEPA it is "just" a pointer which
+// are never de-referenced.
+typedef struct mepa_callout_ctx {
+    mesa_inst_t             inst;
+    struct meba_inst        *meba_inst;
+    mepa_port_no_t          port_no;
+    mesa_miim_controller_t  miim_controller;
+    uint8_t                 miim_addr;
+    mesa_chip_no_t          chip_no;
+} mepa_callout_ctx_t;
 
 typedef struct {
     // The duration of time to be before going to low level (seconds)

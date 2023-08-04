@@ -124,6 +124,7 @@ static vtss_rc srvl_port_clause_37_status_get(vtss_state_t *vtss_state,
  *  Serdes configuration
  * =================================================================*/
 
+#if VTSS_OPT_TRACE
 static const char *srvl_serdes_mode_txt(vtss_serdes_mode_t mode)
 {
     return (mode == VTSS_SERDES_MODE_DISABLE ? "DISABLE" : 
@@ -132,6 +133,7 @@ static const char *srvl_serdes_mode_txt(vtss_serdes_mode_t mode)
             mode == VTSS_SERDES_MODE_100FX ? "100FX" :
             mode == VTSS_SERDES_MODE_1000BaseX ? "1000BX" : "?");
 }
+#endif
 
 /* Serdes1G: Read/write data */
 static vtss_rc srvl_sd1g_read_write(vtss_state_t *vtss_state, u32 addr, BOOL write)
@@ -906,23 +908,23 @@ static vtss_rc srvl_serdes_inst_get(vtss_state_t *vtss_state,
         return VTSS_RC_ERROR;
     }
 
-    uint8_t mode0_serd6[] =   {0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1};
-    uint8_t mode0_inst_no[] = {0, 1, 2, 3, 4, 5, SRVL_SERDES_INST_NONE, 0, 1, SRVL_SERDES_INST_NONE, 2};
+    u8 mode0_serd6[] =   {0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1};
+    u8 mode0_inst_no[] = {0, 1, 2, 3, 4, 5, SRVL_SERDES_INST_NONE, 0, 1, SRVL_SERDES_INST_NONE, 2};
 
-    uint8_t mode1_serd6[] =   {0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0};
-    uint8_t mode1_inst_no[] = {0, 1, 2, 3, 4, 5, SRVL_SERDES_INST_NONE, 0, 1, SRVL_SERDES_INST_NONE, SRVL_SERDES_INST_NONE};
+    u8 mode1_serd6[] =   {0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0};
+    u8 mode1_inst_no[] = {0, 1, 2, 3, 4, 5, SRVL_SERDES_INST_NONE, 0, 1, SRVL_SERDES_INST_NONE, SRVL_SERDES_INST_NONE};
 
-    uint8_t mode2_serd6[] =   {0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 1};
-    uint8_t mode2_inst_no[] = {0, 1, 2, 3, 0, 0, 0, 0, 1, 4, 2};
+    u8 mode2_serd6[] =   {0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 1};
+    u8 mode2_inst_no[] = {0, 1, 2, 3, 0, 0, 0, 0, 1, 4, 2};
 
-    uint8_t mode3_serd6[] =   {0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0};
-    uint8_t mode3_inst_no[] = {0, 1, 2, 3, 0, 0, 0, 0, 1, 4, 5};
+    u8 mode3_serd6[] =   {0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0};
+    u8 mode3_inst_no[] = {0, 1, 2, 3, 0, 0, 0, 0, 1, 4, 5};
 
-    uint8_t mode4_serd6[] =   {0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1};
-    uint8_t mode4_inst_no[] = {0, 1, SRVL_SERDES_INST_NONE, SRVL_SERDES_INST_NONE, 2, 5, 3, 0, 1, 4, 2};
+    u8 mode4_serd6[] =   {0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1};
+    u8 mode4_inst_no[] = {0, 1, SRVL_SERDES_INST_NONE, SRVL_SERDES_INST_NONE, 2, 5, 3, 0, 1, 4, 2};
 
-    uint8_t mode5_serd6[] =   {0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0};
-    uint8_t mode5_inst_no[] = {0, 1, SRVL_SERDES_INST_NONE, SRVL_SERDES_INST_NONE, 2, 5, 3, 0, 1, 4, SRVL_SERDES_INST_NONE};
+    u8 mode5_serd6[] =   {0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0};
+    u8 mode5_inst_no[] = {0, 1, SRVL_SERDES_INST_NONE, SRVL_SERDES_INST_NONE, 2, 5, 3, 0, 1, 4, SRVL_SERDES_INST_NONE};
 
     vtss_port_mux_mode_t mux_mode = vtss_state->init_conf.mux_mode;
 
@@ -1911,7 +1913,7 @@ static vtss_rc srvl_port_status_get(vtss_state_t *vtss_state,
     u32              value;
     
     if (conf->power_down) {
-        memset(status, 0, sizeof(*status));
+        VTSS_MEMSET(status, 0, sizeof(*status));
         return VTSS_RC_OK;
     }
 
@@ -2088,9 +2090,6 @@ static vtss_rc srvl_port_counters_read(vtss_state_t                 *vtss_state,
 
     /* RMON Rx counters */
     rmon->rx_etherStatsDropEvents = c->dr_tail.value;
-    for (i = 0; i < VTSS_PRIOS; i++) {
-        rmon->rx_etherStatsDropEvents += (c->dr_yellow_class[i].value + c->dr_green_class[i].value);
-    }
 
     rmon->rx_etherStatsOctets = c->rx_octets.value;
     rmon->rx_etherStatsPkts = 
@@ -2114,6 +2113,9 @@ static vtss_rc srvl_port_counters_read(vtss_state_t                 *vtss_state,
 
     /* RMON Tx counters */
     rmon->tx_etherStatsDropEvents = (c->tx_drops.value + c->tx_aging.value);
+    for (i = 0; i < VTSS_PRIOS; i++) {
+        rmon->tx_etherStatsDropEvents += (c->dr_yellow_class[i].value + c->dr_green_class[i].value);
+    }
     rmon->tx_etherStatsOctets = c->tx_octets.value;
     rmon->tx_etherStatsPkts = 
         (c->tx_64.value + c->tx_65_127.value + c->tx_128_255.value + c->tx_256_511.value + 
@@ -2146,14 +2148,19 @@ static vtss_rc srvl_port_counters_read(vtss_state_t                 *vtss_state,
     if_group->ifOutMulticastPkts = c->tx_multicast.value;
     if_group->ifOutBroadcastPkts = c->tx_broadcast.value;
     if_group->ifOutNUcastPkts = (c->tx_multicast.value + c->tx_broadcast.value);
+    if_group->ifOutDiscards = rmon->tx_etherStatsDropEvents;
     if_group->ifOutErrors = (c->tx_drops.value + c->tx_aging.value);
 
     /* Ethernet-like counters */
-    elike->dot3InPauseFrames = c->rx_pause.value;
+    elike->dot3InPauseFrames = c->rx_pause.value + c->rx_control.value;
     elike->dot3OutPauseFrames = c->tx_pause.value;     
 
     /* Bridge counters */
     counters->bridge.dot1dTpPortInDiscards = (c->rx_classified_drops.value + c->dr_local.value);
+    for (i = 0; i < VTSS_PRIOS; i++) {
+        counters->bridge.dot1dTpPortInDiscards += c->rx_red_class[i].value;
+    }
+
     return VTSS_RC_OK;
 }
 
@@ -2227,7 +2234,7 @@ static vtss_rc srvl_port_counters_get(vtss_state_t *vtss_state,
                                       const vtss_port_no_t port_no,
                                       vtss_port_counters_t *const counters)
 {
-    memset(counters, 0, sizeof(*counters)); 
+    VTSS_MEMSET(counters, 0, sizeof(*counters));
     return srvl_port_counters_cmd(vtss_state, port_no, counters, 0);
 }
 
@@ -2636,7 +2643,7 @@ static vtss_rc srvl_debug_port(vtss_state_t *vtss_state,
         if ((port_no = vtss_cmn_port2port_no(vtss_state, info, port)) == VTSS_PORT_NO_NONE)
             continue;
 
-        sprintf(buf, "Port %u (%u)", port, port_no);
+        VTSS_SPRINTF(buf, "Port %u (%u)", port, port_no);
         vtss_srvl_debug_reg_header(pr, buf);
         tgt = VTSS_TO_DEV(port);
         vtss_srvl_debug_reg_inst(vtss_state, pr, VTSS_DEV_PORT_MODE_CLOCK_CFG(tgt), port, "CLOCK_CFG");
@@ -2666,10 +2673,10 @@ static vtss_rc srvl_debug_port(vtss_state_t *vtss_state,
         }
         
         if (serdes6g) {
-            sprintf(buf, "SerDes6G_%u", inst);
+            VTSS_SPRINTF(buf, "SerDes6G_%u", inst);
             (void)srvl_debug_serdes6g(vtss_state, pr, inst, buf);
         } else {
-            sprintf(buf, "SerDes1G_%u", inst);
+            VTSS_SPRINTF(buf, "SerDes1G_%u", inst);
             vtss_srvl_debug_reg_header(pr, buf);
             VTSS_RC(srvl_sd1g_read(vtss_state, 1 << inst));
             SRVL_DEBUG_HSIO(pr, SERDES1G_ANA_CFG_SERDES1G_DES_CFG, "DES_CFG");
@@ -2720,7 +2727,7 @@ static vtss_rc srvl_debug_port(vtss_state_t *vtss_state,
 
     if (vtss_state->sys_config.using_pcie) {
         inst = 2; /* Serdes2 == PCIe */
-        sprintf(buf, "SerDes6G_%u (PCIe)", inst);
+        VTSS_SPRINTF(buf, "SerDes6G_%u (PCIe)", inst);
         (void)srvl_debug_serdes6g(vtss_state, pr, inst, buf);
     }
 
@@ -2731,10 +2738,11 @@ static void srvl_debug_cnt_inst(const vtss_debug_printf_t pr, u32 i,
                                 const char *col1, const char *col2, 
                                 vtss_chip_counter_t *c1, vtss_chip_counter_t *c2)
 {
-    char buf[80];
+    char buf1[80], buf2[80];
     
-    sprintf(buf, "%s_%u", col1, i);
-    vtss_srvl_debug_cnt(pr, buf, col2, c1, c2);
+    VTSS_SPRINTF(buf1, "%s_%u", col1 && strlen(col1) ? col1 : col2, i);
+    VTSS_SPRINTF(buf2, "%s_%u", col2 && strlen(col2) ? col2 : col1, i);
+    vtss_srvl_debug_cnt(pr, col1 ? buf1 : col1, col2 ? buf2 : col2, c1, c2);
 }
 
 static vtss_rc srvl_debug_port_cnt(vtss_state_t *vtss_state,
@@ -2747,42 +2755,52 @@ static vtss_rc srvl_debug_port_cnt(vtss_state_t *vtss_state,
     vtss_port_luton26_counters_t *cnt;
     BOOL                         cpu_port;
     
-    for (port = 0; port <= VTSS_CHIP_PORTS; port++) {
-        cpu_port = (port == VTSS_CHIP_PORT_CPU);
+    if (info->has_action && info->action == 0) {
+        pr("Port counter actions:\n");
+        pr("0: Show actions\n");
+        pr("1: Show CPU and VD counters\n");
+        pr("2: Show MAC counters only\n");
+        pr("3: Show QS counters only\n");
+        return VTSS_RC_OK;
+    }
 
-        if (info->clear) {
-            SRVL_WR(VTSS_SYS_SYSTEM_STAT_CFG, VTSS_F_SYS_SYSTEM_STAT_CFG_STAT_CLEAR_SHOT(0x7) | VTSS_F_SYS_SYSTEM_STAT_CFG_STAT_VIEW(port));
-        }
+    for (port_no = VTSS_PORT_NO_START; port_no <= vtss_state->port_count; port_no++) {
+        cpu_port = (port_no == vtss_state->port_count);
 
         if (cpu_port) {
             /* CPU port */
-            if (!info->full)
+            if (info->action != 1)
                 continue;
+            port = VTSS_CHIP_PORT_CPU;
             cnt = &vtss_state->port.cpu_counters.counter.luton26;
-            port_no = VTSS_PORT_NO_NONE;
         } else {
             /* Normal port */
-            if ((port_no = vtss_cmn_port2port_no(vtss_state, info, port)) == VTSS_PORT_NO_NONE)
+            if (info->action == 1 || info->port_list[port_no] == 0)
                 continue;
+            port = VTSS_CHIP_PORT(port_no);
             cnt = &vtss_state->port.counters[port_no].counter.luton26;
         }
         VTSS_RC(srvl_port_counters_read(vtss_state, port_no, port, cnt, NULL, 0));
         VTSS_EXIT_ENTER();
 
+        if (info->clear) {
+            SRVL_WR(VTSS_SYS_SYSTEM_STAT_CFG, VTSS_F_SYS_SYSTEM_STAT_CFG_STAT_CLEAR_SHOT(0x7) | VTSS_F_SYS_SYSTEM_STAT_CFG_STAT_VIEW(port));
+        }
+
         /* Basic counters */
         if (cpu_port) {
             pr("Counters CPU port: %u\n\n", port);
         } else {
-            pr("Counters for phys. port: %u (iport %u):\n\n", port, port_no);
-            vtss_srvl_debug_cnt(pr, "oct", "", &cnt->rx_octets, &cnt->tx_octets);
-            vtss_srvl_debug_cnt(pr, "uc", "", &cnt->rx_unicast, &cnt->tx_unicast);
-            vtss_srvl_debug_cnt(pr, "mc", "", &cnt->rx_multicast, &cnt->tx_multicast);
-            vtss_srvl_debug_cnt(pr, "bc", "", &cnt->rx_broadcast, &cnt->tx_broadcast);
-        }
+            pr("Counters for port: %u (chip_port %u):\n\n", port_no, port);
+            if (info->full || info->action != 3) {
+                vtss_srvl_debug_cnt(pr, "oct", "", &cnt->rx_octets, &cnt->tx_octets);
+                vtss_srvl_debug_cnt(pr, "uc", "", &cnt->rx_unicast, &cnt->tx_unicast);
+                vtss_srvl_debug_cnt(pr, "mc", "", &cnt->rx_multicast, &cnt->tx_multicast);
+                vtss_srvl_debug_cnt(pr, "bc", "", &cnt->rx_broadcast, &cnt->tx_broadcast);
+            }
 
-        /* Detailed counters */
-        if (info->full) {
-            if (!cpu_port) {
+            /* Detailed MAC Ccounters */
+            if (info->full || info->action == 2) {
                 vtss_srvl_debug_cnt(pr, "pause", "", &cnt->rx_pause, &cnt->tx_pause);
                 vtss_srvl_debug_cnt(pr, "64", "", &cnt->rx_64, &cnt->tx_64);
                 vtss_srvl_debug_cnt(pr, "65_127", "", &cnt->rx_65_127, &cnt->tx_65_127);
@@ -2791,13 +2809,6 @@ static vtss_rc srvl_debug_port_cnt(vtss_state_t *vtss_state,
                 vtss_srvl_debug_cnt(pr, "512_1023", "", &cnt->rx_512_1023, &cnt->tx_512_1023);
                 vtss_srvl_debug_cnt(pr, "1024_1526", "", &cnt->rx_1024_1526, &cnt->tx_1024_1526);
                 vtss_srvl_debug_cnt(pr, "jumbo", "", &cnt->rx_1527_max, &cnt->tx_1527_max);
-            }
-            vtss_srvl_debug_cnt(pr, "cat_drop", cpu_port ? NULL : "drops", 
-                           &cnt->rx_classified_drops, &cnt->tx_drops);
-            vtss_srvl_debug_cnt(pr, "dr_local", cpu_port ? NULL : "aged", 
-                           &cnt->dr_local, &cnt->tx_aging);
-            vtss_srvl_debug_cnt(pr, "dr_tail", NULL, &cnt->dr_tail, NULL);
-            if (!cpu_port) {
                 vtss_srvl_debug_cnt(pr, "crc", NULL, &cnt->rx_crc_align_errors, NULL);
                 vtss_srvl_debug_cnt(pr, "symbol", NULL, &cnt->rx_symbol_errors, NULL);
                 vtss_srvl_debug_cnt(pr, "short", NULL, &cnt->rx_shorts, NULL);
@@ -2806,6 +2817,15 @@ static vtss_rc srvl_debug_port_cnt(vtss_state_t *vtss_state,
                 vtss_srvl_debug_cnt(pr, "jabber", NULL, &cnt->rx_jabbers, NULL);
                 vtss_srvl_debug_cnt(pr, "control", NULL, &cnt->rx_control, NULL);
             }
+        }
+
+        if (info->full || info->action == 1 || info->action == 3) {
+            /* Queue system counters */
+            vtss_srvl_debug_cnt(pr, "cat_drop", cpu_port ? NULL : "drops",
+                                &cnt->rx_classified_drops, &cnt->tx_drops);
+            vtss_srvl_debug_cnt(pr, "dr_local", cpu_port ? NULL : "aged",
+                                &cnt->dr_local, &cnt->tx_aging);
+            vtss_srvl_debug_cnt(pr, "dr_tail", NULL, &cnt->dr_tail, NULL);
             for (i = 0; i < VTSS_PRIOS; i++)
                 srvl_debug_cnt_inst(pr, i, "green", "", 
                                     &cnt->rx_green_class[i], &cnt->tx_green_class[i]);
@@ -2813,16 +2833,12 @@ static vtss_rc srvl_debug_port_cnt(vtss_state_t *vtss_state,
                 srvl_debug_cnt_inst(pr, i, "yellow", "", 
                                     &cnt->rx_yellow_class[i], &cnt->tx_yellow_class[i]);
             for (i = 0; i < VTSS_PRIOS; i++) 
-                srvl_debug_cnt_inst(pr, i, "red", NULL, &cnt->rx_red_class[i], NULL);
+                srvl_debug_cnt_inst(pr, i, "red", "dr_green", &cnt->rx_red_class[i], &cnt->dr_green_class[i]);
             for (i = 0; i < VTSS_PRIOS; i++)
-                srvl_debug_cnt_inst(pr, i, "dr_green", NULL, &cnt->dr_green_class[i], NULL);
-            for (i = 0; i < VTSS_PRIOS; i++)
-                srvl_debug_cnt_inst(pr, i, "dr_yellow", NULL, &cnt->dr_yellow_class[i], NULL);
+                srvl_debug_cnt_inst(pr, i, NULL, "dr_yellow", NULL, &cnt->dr_yellow_class[i]);
         }
-
         pr("\n");
     }
-
     return VTSS_RC_OK;
 }
 
@@ -3076,6 +3092,9 @@ vtss_rc vtss_srvl_port_init(vtss_state_t *vtss_state, vtss_init_cmd_t cmd)
                         VTSS_F_SYS_SYSTEM_STAT_CFG_STAT_VIEW(port));
             }
         }
+
+        // Count QS drops at egress port
+        SRVL_WRM_SET(VTSS_QSYS_SYSTEM_STAT_CNT_CFG, VTSS_F_QSYS_SYSTEM_STAT_CNT_CFG_DROP_COUNT_EGRESS);
         break;
     case VTSS_INIT_CMD_PORT_MAP:
         VTSS_RC(srvl_port_buf_conf_set(vtss_state));

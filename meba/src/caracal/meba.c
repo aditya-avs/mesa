@@ -19,6 +19,9 @@
 #define PDS_408G_POE_DISABLE_PORTS_IO   (10)  // GPI10 , output, 0=POE_Disable. 1=PoE_Enable
 #define PDS_408G_RESET_BUTTON_IP        (12)
 
+/** \brief Number of L26 or Serval PTP pins, that can be used as 1PPS or clock output/input. */
+#define VTSS_TS_IO_ARRAY_SIZE       1
+
 /* SGPIO LED mapping */
 typedef struct {
     uint8_t port;
@@ -39,6 +42,12 @@ typedef enum {
     LED_TOWER_MODE_POWER_SAVE,      /**< Disabled to save power */
     LED_TOWER_MODE_CNT
 } led_tower_mode_t;
+
+static const uint32_t pin_conf[VTSS_TS_IO_ARRAY_SIZE] = {
+(MEBA_PTP_IO_CAP_PIN_IN | MEBA_PTP_IO_CAP_PIN_OUT)
+};
+
+static const meba_event_t init_int_source_id[VTSS_TS_IO_ARRAY_SIZE] = {MEBA_EVENT_SYNC};
 
 static const sgpio_mapping_t tower_led_mapping_lu26[LED_TOWER_MODE_CNT][2] = {
     {{2, 2} /* tower 0 green */, {3, 2} /* tower 0 yellow */},
@@ -143,7 +152,7 @@ typedef struct meba_board_state {
 #define VTSS_OS_TICK2MSEC(x)    ((x)*100)  // assume itteration every 100msec
 
 static const mesa_fan_conf_t fan_conf = {
-    .fan_pwm_freq = MESA_FAN_PWM_FREQ_20HZ,    // 20MHz
+    .fan_pwm_freq = MESA_FAN_PWM_FREQ_25KHZ,   // 25kHz
     .fan_low_pol = 0,                          // active low
     .fan_open_col = true,                      // Open collector
     .type = MESA_FAN_3_WIRE_TYPE,              // 3-wire
@@ -164,6 +173,16 @@ static const mesa_fan_conf_t fan_conf_lu10 = {
     .type = MESA_FAN_3_WIRE_TYPE,              // 3-wire
     .ppr = 2,                                  // 2 PPR
 };
+
+static mesa_rc caracal_ptp_external_io_conf_get(meba_inst_t inst, uint32_t io_pin, meba_ptp_io_cap_t *const board_assignment, meba_event_t *const source_id)
+{
+    if (io_pin >= VTSS_TS_IO_ARRAY_SIZE) {
+        return MESA_RC_ERROR;
+    }
+    *board_assignment = pin_conf[io_pin];
+    *source_id = init_int_source_id[io_pin];
+    return MESA_RC_OK;
+}
 
 const sgpio_mapping_t *sgpio_map_led(meba_board_state_t *board, int i)
 {
@@ -277,6 +296,8 @@ static uint32_t caracal_capability(meba_inst_t inst, int cap)
             return false;
         case MEBA_CAP_CPU_PORTS_COUNT:
             return 0;
+        case MEBA_CAP_BOARD_PORT_POE_COUNT:
+            return board->port_cnt;
         default:
             T_E(inst, "Unknown capability %d", cap);
             MEBA_ASSERT(0);
@@ -301,8 +322,8 @@ static mesa_rc caracal_port_entry_get(meba_inst_t inst, mesa_port_no_t port_no, 
             entry->map.miim_controller = MESA_MIIM_CONTROLLER_NONE;
             entry->mac_if              = MESA_PORT_INTERFACE_SERDES;
             entry->cap                 = MEBA_PORT_CAP_SFP_1G;
-            entry->cap                |= MEBA_PORT_CAP_SFP_SD_HIGH; // EZRA ?????
-            entry->cap                |= MEBA_PORT_CAP_DUAL_SFP_DETECT; // Yoram ?????
+            entry->cap                |= MEBA_PORT_CAP_SFP_SD_HIGH;
+            entry->cap                |= MEBA_PORT_CAP_DUAL_SFP_DETECT;
         } else {
             /* Copper ports (0..9) with internal PHY */
             entry->map.chip_port       = port_no;
@@ -487,7 +508,7 @@ static mesa_rc caracal_reset(meba_inst_t inst,
             break;
         case MEBA_PORT_RESET:
             // Internal PHY
-            if ((rc = mesa_phy_pre_reset(PHY_INST, 0)) != MESA_RC_OK) {
+            if ((rc = vtss_phy_pre_reset(PHY_INST, 0)) != MESA_RC_OK) {
                 break;
             }
 
@@ -495,11 +516,11 @@ static mesa_rc caracal_reset(meba_inst_t inst,
                 mesa_port_no_t port_idx;
 
                 // External PHY (Atom12)
-                rc = mesa_phy_pre_reset(PHY_INST, 12);
+                rc = vtss_phy_pre_reset(PHY_INST, 12);
 
                 // Setup dual media port (fiber/cu), PHY 13 is external Atom12 PHY w/dual-media
-                (void) mesa_phy_write_masked(NULL, 13, 19 | MESA_PHY_REG_GPIO, 0x8000, 0xC000); // Enable fiber-media SerDes in HSIO
-                (void) mesa_phy_write(NULL, 13, 18 | MESA_PHY_REG_GPIO, 0x8f81);
+                (void) vtss_phy_write_masked(NULL, 13, 19 | VTSS_PHY_REG_GPIO, 0x8000, 0xC000); // Enable fiber-media SerDes in HSIO
+                (void) vtss_phy_write(NULL, 13, 18 | VTSS_PHY_REG_GPIO, 0x8f81);
 
                 switch (inst->props.target) {
                     case MESA_TARGET_SPARX_III_24:
@@ -508,14 +529,14 @@ static mesa_rc caracal_reset(meba_inst_t inst,
                         // SFP Signal detect shall be active low (register 19E1 bit 1 = true)
                         // Dual media ports (user port 21-24)
                         for (port_idx = 20; port_idx < 24; port_idx++) {
-                            (void) mesa_phy_write_masked(NULL, port_idx, 19 |MESA_PHY_REG_EXTENDED , 0x1, 0x1);
+                            (void) vtss_phy_write_masked(NULL, port_idx, 19 |VTSS_PHY_REG_EXTENDED , 0x1, 0x1);
                         }
                         break;
                     case MESA_TARGET_SPARX_III_18:
                         // SFP Signal detect shall be active low (register 19E1 bit 1 = true)
                         // Dual media ports (user port 12-16)
                         for (port_idx = 12; port_idx < 16; port_idx++) {
-                            (void) mesa_phy_write_masked(NULL, port_idx, 19 |MESA_PHY_REG_EXTENDED , 0x1, 0x1);
+                            (void) vtss_phy_write_masked(NULL, port_idx, 19 |VTSS_PHY_REG_EXTENDED , 0x1, 0x1);
                         }
                         break;
                     default:
@@ -524,20 +545,20 @@ static mesa_rc caracal_reset(meba_inst_t inst,
             }
             break;
         case MEBA_PORT_RESET_POST:
-            rc = mesa_phy_post_reset(PHY_INST, 0);
+            rc = vtss_phy_post_reset(PHY_INST, 0);
             break;
         case MEBA_STATUS_LED_INITIALIZE:
             {
-                mesa_phy_enhanced_led_control_t conf;
+                vtss_phy_enhanced_led_control_t conf;
                 conf.ser_led_output_2 = true;
                 conf.ser_led_output_1 = false;
                 conf.ser_led_frame_rate = 0x1;
                 conf.ser_led_select = 0;
                 if (board->type == BOARD_LUTON26) {
-                    mesa_phy_enhanced_led_control_init(PHY_INST, 13, conf);
+                    vtss_phy_enhanced_led_control_init(PHY_INST, 13, conf);
                 } else if (board->type == BOARD_LUTON10 ||
                            board->type == BOARD_LUTON10_PDS408G) {
-                    mesa_phy_enhanced_led_control_init(PHY_INST, 1, conf);
+                    vtss_phy_enhanced_led_control_init(PHY_INST, 1, conf);
                 }
             }
             break;
@@ -547,7 +568,7 @@ static mesa_rc caracal_reset(meba_inst_t inst,
                 if (board->type == BOARD_LUTON26) {
                     /* Setup LED_PWM */
                     /* GPIO_8 is primarily used as LED1 for port 3 (external PHY) - it is at internal port 15 */
-                    rc = mesa_phy_write_masked(NULL, 15, 29, 0x00F0, 0x00F0);
+                    rc = vtss_phy_write_masked(NULL, 15, 29, 0x00F0, 0x00F0);
 
                     switch (inst->props.target) {
                         case MESA_TARGET_SPARX_III_24:
@@ -558,18 +579,18 @@ static mesa_rc caracal_reset(meba_inst_t inst,
                                 // So we turned off them here. Actully there's no clear definition for
                                 // yellow LEDs. So S/W doesn't implement it yet.
                                 for (port = 12; port < 16; port++) {
-                                    (void) mesa_phy_write_masked(NULL, port, 29 , 0xE, 0xF);
+                                    (void) vtss_phy_write_masked(NULL, port, 29 , 0xE, 0xF);
                                 }
                                 // Make sure that SFP led are turned off
                                 for (port = 20; port < 24; port ++) {
-                                    (void) mesa_phy_write_masked(NULL, port, 29, 0xE, 0xF);
+                                    (void) vtss_phy_write_masked(NULL, port, 29, 0xE, 0xF);
                                 }
                             break;
                         case MESA_TARGET_SPARX_III_18:
                             // Phy ports 12-16 gpios are connected  to the SFP yellow LEDs (See Schematic), but we don't use them, so we need
                             // to make sure that they are turned off.
                             for (port = 12; port < 16; port ++) {
-                                (void) mesa_phy_write_masked(NULL, port, 29, 0xE, 0xF);
+                                (void) vtss_phy_write_masked(NULL, port, 29, 0xE, 0xF);
                             }
                         default:
                             break;
@@ -593,14 +614,14 @@ static mesa_rc caracal_reset(meba_inst_t inst,
         case MEBA_SENSOR_INITIALIZE:
             if (board->type == BOARD_LUTON26) {
                 // The Luton26 board has a temperature sensor in Luton26 (ports 0-11) and one in Atom12 (ports 12-24)
-                if ((rc = mesa_phy_chip_temp_init(PHY_INST, 0)) != MESA_RC_OK ||
-                    (rc = mesa_phy_chip_temp_init(PHY_INST, 12)) != MESA_RC_OK) {
+                if ((rc = vtss_phy_chip_temp_init(PHY_INST, 0)) != MESA_RC_OK ||
+                    (rc = vtss_phy_chip_temp_init(PHY_INST, 12)) != MESA_RC_OK) {
                     rc = MESA_RC_ERROR;
                 }
             } else if (board->type == BOARD_LUTON10 ||
                        board->type == BOARD_LUTON10_PDS408G) {
                 // The Luton10 board has a temperature sensor in the internal PHY.
-                rc = mesa_phy_chip_temp_init(PHY_INST, 0);
+                rc = vtss_phy_chip_temp_init(PHY_INST, 0);
             }
             break;
         case MEBA_INTERRUPT_INITIALIZE:
@@ -632,19 +653,19 @@ static mesa_rc caracal_sensor_get(meba_inst_t inst,
         if (six < caracal_capability(inst, MEBA_CAP_TEMP_SENSORS)) {
             if (board->type == BOARD_LUTON26) {
                 // The Luton26 board has a temperature sensor in Luton26 (ports 0-11) and one in Atom12 (ports 12-24)
-                rc = mesa_phy_chip_temp_get(PHY_INST, six * 12, &temp);
+                rc = vtss_phy_chip_temp_get(PHY_INST, six * 12, &temp);
             } else {
                 // The Luton10 board has a temperature sensor in the internal PHY.
-                rc = mesa_phy_chip_temp_get(PHY_INST, six, &temp);
+                rc = vtss_phy_chip_temp_get(PHY_INST, six, &temp);
             }
         }
     } else if (type == MEBA_SENSOR_PORT_TEMP) {
         if (board->type == BOARD_LUTON26) {
             // The Luton26 board has a temperature sensor in Luton26 (ports 0-11) and one in Atom12 (ports 12-24)
-            rc = mesa_phy_chip_temp_get(PHY_INST, six < 12 ? 0 : 12, &temp);
+            rc = vtss_phy_chip_temp_get(PHY_INST, six < 12 ? 0 : 12, &temp);
         } else {
             // The Luton10 board has a temperature sensor in the internal PHY.
-            rc = mesa_phy_chip_temp_get(PHY_INST, 0, &temp);
+            rc = vtss_phy_chip_temp_get(PHY_INST, 0, &temp);
         }
     }
     if (rc == MESA_RC_OK) {
@@ -679,7 +700,7 @@ static mesa_rc caracal_sfp_i2c_xfer(meba_inst_t inst,
         // Dual media SFP ports - Connected to PHY i2c
         if (chip_port >= 20 && chip_port <= 23) {
             // Due to a hardware board issue only SFP i2c mux 0 works, so that is always used.
-            rc = mesa_phy_i2c_write(NULL, port_no, 0, addr, i2c_addr, data, 2, word_access);
+            rc = vtss_phy_i2c_write(NULL, port_no, 0, addr, i2c_addr, word_access, 2, data);
         } else {
             // Uplink ports - Connected to switch i2c
             uint8_t i2c_data[3];
@@ -698,7 +719,7 @@ static mesa_rc caracal_sfp_i2c_xfer(meba_inst_t inst,
             // mux 0 works. However, on schematics sent to customers (rev. 2.03)
             // this has been fixed, so that it works. The cutomer may want to
             // remove the lines where MEBA_PORT_CAP_SFP_INACCESSIBLE are set.
-            rc = mesa_phy_i2c_read(NULL, port_no, port_no - 20, addr, i2c_addr, data, cnt, word_access);
+            rc = vtss_phy_i2c_read(NULL, port_no, port_no - 20, addr, i2c_addr, word_access, cnt, data);
         } else {
             // Uplink ports - Connected to switch i2c
             /* This function pointer refers to i2c_read() in vtss_appl/main/vtss_api_if.cxx,
@@ -828,7 +849,7 @@ static void lu26_fiber_port_led_update(meba_inst_t inst,
         val = 0x000F;
     }
 
-    (void) mesa_phy_write_masked(NULL, port_no, 29, val, mask);
+    (void) vtss_phy_write_masked(NULL, port_no, 29, val, mask);
 }
 
 static mesa_rc caracal_status_led_set(meba_inst_t inst,
@@ -980,7 +1001,7 @@ static mesa_rc caracal_port_led_update(meba_inst_t inst,
                 if (caracal_port_entry_get(inst, port_idx, &entry) == MESA_RC_OK &&
                     (entry.cap & (MEBA_PORT_CAP_SPEED_DUAL_ANY_FIBER))) {
                     /* Read Media Mode  status */
-                    if (mesa_phy_read(NULL, port_idx, 20 | MESA_PHY_REG_EXTENDED, &reg) == MESA_RC_OK) {
+                    if (vtss_phy_read(NULL, port_idx, 20 | VTSS_PHY_REG_EXTENDED, &reg) == MESA_RC_OK) {
                         mesa_bool_t fiber = (((reg >> 6) & 0x3) == 2 ? 1 : 0);
                         if (fiber || !status_old[port_idx].link) {
                             lu26_fiber_port_led_update(inst, port_idx, status_old[port_idx].link);
@@ -1034,7 +1055,7 @@ static mesa_rc caracal_port_led_update(meba_inst_t inst,
 }
 
 static mesa_rc caracal_led_intensity_set(meba_inst_t inst,
-                                         mesa_phy_led_intensity intensity)
+                                         vtss_phy_led_intensity intensity)
 {
     mesa_rc rc;
     meba_board_state_t *board = INST2BOARD(inst);
@@ -1043,7 +1064,7 @@ static mesa_rc caracal_led_intensity_set(meba_inst_t inst,
         // For Luton 26 reference board the LED pwm pin is connected at
         // the ATOM12 chip (phy ports 13-24), GPIO 8. Therefore port 13 is
         // used
-        rc = mesa_phy_led_intensity_set(PHY_INST, 13, intensity);
+        rc = vtss_phy_led_intensity_set(PHY_INST, 13, intensity);
     } else {
         // For Luton 10 reference board the LED pwm is in fact the FAN
         // controller PWM, so we need to used mesa_fan_cool_lvl_set which
@@ -1084,7 +1105,7 @@ static mesa_rc caracal_fan_conf_get(meba_inst_t inst,
 }
 
 static mesa_rc caracal_phy_event_enable(meba_inst_t inst,
-                                    mesa_phy_event_t phy_event,
+                                    vtss_phy_event_t phy_event,
                                     mesa_bool_t enable)
 {
     mesa_port_no_t port_no;
@@ -1101,13 +1122,13 @@ static mesa_rc caracal_phy_event_enable(meba_inst_t inst,
 
         if (is_phy_internal(entry.cap)) {
             if (mesa_dev_all_event_enable(NULL, port_no, MESA_DEV_ALL_LINK_EV, enable) != MESA_RC_OK) {
-                T_E(inst, "mesa_phy_event_enable_set = %d", rc);
+                T_E(inst, "vtss_phy_event_enable_set = %d", rc);
                 break;
             }
         }
         if (is_phy_port(entry.cap)){
-            if ((rc = mesa_phy_event_enable_set(PHY_INST, port_no, phy_event, enable)) != MESA_RC_OK) {
-                T_E(inst, "mesa_phy_event_enable_set = %d", rc);
+            if ((rc = vtss_phy_event_enable_set(PHY_INST, port_no, phy_event, enable)) != MESA_RC_OK) {
+                T_E(inst, "vtss_phy_event_enable_set = %d", rc);
                 break;
             }
         }
@@ -1156,14 +1177,14 @@ static mesa_rc caracal_event_enable(meba_inst_t inst,
 
                         /* If the port is a dual-media one, then the board port no is different */
                         if (has_cap(entry.cap, (MEBA_PORT_CAP_DUAL_COPPER | MEBA_PORT_CAP_DUAL_FIBER))) {
-                            rc = caracal_phy_event_enable(inst, MESA_PHY_LINK_LOS_EV, enable);
+                            rc = caracal_phy_event_enable(inst, VTSS_PHY_LINK_LOS_EV, enable);
                         }
                     }
                 }
             }
             break;
         case MEBA_EVENT_FLNK:
-            rc = caracal_phy_event_enable(inst, MESA_PHY_LINK_FFAIL_EV, enable);
+            rc = caracal_phy_event_enable(inst, VTSS_PHY_LINK_FFAIL_EV, enable);
             break;
         default:
             T_I(inst, "Unsupported Interrupt source %d", event_id);
@@ -1419,7 +1440,7 @@ meba_inst_t meba_initialize(size_t callouts_size,
     inst->api.meba_irq_requested              = caracal_irq_requested;
     inst->api.meba_event_enable               = caracal_event_enable;
     inst->api.meba_deinitialize               = meba_deinitialize;
-
+    inst->api.meba_ptp_external_io_conf_get   = caracal_ptp_external_io_conf_get;
     inst->api_synce = meba_synce_get();
     inst->api_tod = meba_tod_get();
     inst->api_poe = meba_poe_get();

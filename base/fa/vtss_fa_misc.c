@@ -43,9 +43,9 @@ static vtss_rc fa_eee_port_conf_set(vtss_state_t *vtss_state,
         // when the PHY has auto negotiated and have found that the link partner supports EEE.
         if (conf->lp_advertisement == 0) {
             VTSS_D("Link partner doesn't support EEE - Keeping EEE disabled. Port:%u", chip_port);
-        } else if (!(vtss_state->phy_state[port_no].status.fdx)) {
+        } else if (!(vtss_state->port.conf[port_no].fdx)) {
             // EEE and Half duplex are not supposed to work together, so we disables EEE in the case where the port is in HDX mode.
-            VTSS_D("EEE disabled due to that port is in HDX mode, port:%u, fdx:%u", chip_port, vtss_state->phy_state[port_no].status.fdx);
+            VTSS_D("EEE disabled due to that port is in HDX mode, port:%u", chip_port);
         } else {
             eee_cfg_reg |= VTSS_M_DEV1G_EEE_CFG_EEE_ENA;
         }
@@ -503,7 +503,7 @@ static vtss_rc fa_misc_irq_status(vtss_state_t *vtss_state, vtss_irq_status_t *s
 {
     u32 val, uio_irqs, dest;
 
-    memset(status, 0, sizeof(*status));
+    VTSS_MEMSET(status, 0, sizeof(*status));
 
     // Which interrupts are taken care of in user-space?
     if (vtss_state->sys_config.using_pcie) {
@@ -1042,7 +1042,7 @@ static vtss_rc fa_debug_misc(vtss_state_t *vtss_state,
     pr("\n");
 
     for (g = 0; g < VTSS_SGPIO_GROUPS; g++) {
-        sprintf(name, "SGPIOs Group:%u", g);
+        VTSS_SPRINTF(name, "SGPIOs Group:%u", g);
         vtss_fa_debug_reg_header(pr, name);
         for (i = 0; i < 4; i++) {
             FA_DEBUG_SIO_INST(pr, INPUT_DATA(g,i), i, "INPUT_DATA");

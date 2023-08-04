@@ -19,6 +19,9 @@
 #define SYNCE_RECVRD_CLK_ID          3  // RCVRD_CLK3, configured by overlaid function SYNC_ETH_CFG[3]
 #define SYNCE_RECVRD_CLK_3_PIN      36  // GPIO used as RCVRD_CLK3
 
+/** \brief Number of Jaguar2 PTP pins, that can be used as 1PPS or clock output/input. */
+#define VTSS_TS_IO_ARRAY_SIZE       4
+
 /*
  *  The status LED is attached through the SGPIO interface, bits p6.2
  *  and p6.3 (green, red).
@@ -60,7 +63,7 @@ typedef struct meba_board_state {
 } meba_board_state_t;
 
 static const mesa_fan_conf_t fan_conf = {
-    .fan_pwm_freq = MESA_FAN_PWM_FREQ_20HZ,    // 20MHz
+    .fan_pwm_freq = MESA_FAN_PWM_FREQ_25KHZ,   // 25kHz
     .fan_low_pol = 0,                          // active low
     .fan_open_col = true,                      // Open collector
     .type = MESA_FAN_3_WIRE_TYPE,              // 3-wire
@@ -75,6 +78,15 @@ static const meba_ptp_rs422_conf_t rs422_conf = {
     .ptp_rs422_pps_int_id   = MEBA_EVENT_PTP_PIN_2,
     .ptp_rs422_ldsv_int_id  = MEBA_EVENT_PTP_PIN_3
 };
+
+static const uint32_t pin_conf[VTSS_TS_IO_ARRAY_SIZE] = {
+(MEBA_PTP_IO_CAP_PIN_IN | MEBA_PTP_IO_CAP_PIN_OUT),
+ MEBA_PTP_IO_CAP_PIN_IN,
+(MEBA_PTP_IO_CAP_TIME_IF_IN | MEBA_PTP_IO_CAP_PIN_IN),
+ MEBA_PTP_IO_CAP_TIME_IF_OUT
+};
+
+static const meba_event_t init_int_source_id[VTSS_TS_IO_ARRAY_SIZE] = {MEBA_EVENT_PTP_PIN_0, MEBA_EVENT_PTP_PIN_1, MEBA_EVENT_PTP_PIN_2, MEBA_EVENT_PTP_PIN_3};
 
 /* SGPIO LED mapping */
 typedef struct {
@@ -144,6 +156,8 @@ static uint32_t servalt_capability(meba_inst_t inst,
         case MEBA_CAP_SYNCE_STATION_CLOCK_MUX_SET:
             return false;
         case MEBA_CAP_CPU_PORTS_COUNT:
+            return 0;
+        case MEBA_CAP_BOARD_PORT_POE_COUNT:
             return 0;
         default:
             T_E(inst, "Unknown capability %d", cap);
@@ -336,7 +350,7 @@ static mesa_rc servalt_reset(meba_inst_t inst,
         case MEBA_PORT_RESET:
             break;
         case MEBA_PORT_RESET_POST:
-            rc = mesa_phy_post_reset(PHY_INST, 0);
+            rc = vtss_phy_post_reset(PHY_INST, 0);
             break;
         case MEBA_STATUS_LED_INITIALIZE:
         case MEBA_PORT_LED_INITIALIZE:
@@ -345,7 +359,7 @@ static mesa_rc servalt_reset(meba_inst_t inst,
             rc = mesa_fan_controller_init(NULL, board->fan_spec);
             break;
         case MEBA_SENSOR_INITIALIZE:
-            rc = mesa_phy_chip_temp_init(PHY_INST, 0);
+            rc = vtss_phy_chip_temp_init(PHY_INST, 0);
             break;
         case MEBA_INTERRUPT_INITIALIZE:
             break;
@@ -483,7 +497,7 @@ static mesa_rc servalt_sensor_get(meba_inst_t inst,
     T_N(inst, "Called %d:%d", type, six);
     if ((type == MEBA_SENSOR_BOARD_TEMP && six == 0) ||
         (type == MEBA_SENSOR_PORT_TEMP && six < board->port_cnt)) {
-        rc = mesa_phy_chip_temp_get(PHY_INST, 0, &temp);
+        rc = vtss_phy_chip_temp_get(PHY_INST, 0, &temp);
     }
     if (rc == MESA_RC_OK) {
         *value = temp;    // Conversion
@@ -850,9 +864,9 @@ static mesa_rc servalt_led_mode_set(meba_inst_t inst, uint32_t mode)
 }
 
 static mesa_rc servalt_led_intensity_set(meba_inst_t inst,
-                                         mesa_phy_led_intensity intensity)
+                                         vtss_phy_led_intensity intensity)
 {
-    return mesa_phy_led_intensity_set(PHY_INST, 0, intensity);
+    return vtss_phy_led_intensity_set(PHY_INST, 0, intensity);
 }
 
 static mesa_rc servalt_fan_param_get(meba_inst_t inst,
@@ -881,6 +895,16 @@ static mesa_rc servalt_ptp_rs422_conf_get(meba_inst_t inst,
     T_N(inst, "Called");
     *conf = rs422_conf;
     return rc;
+}
+static mesa_rc servalt_ptp_external_io_conf_get(meba_inst_t inst, uint32_t io_pin, meba_ptp_io_cap_t *const board_assignment, meba_event_t *const source_id)
+
+{
+    if (io_pin >= VTSS_TS_IO_ARRAY_SIZE) {
+        return MESA_RC_ERROR;
+    }
+    *board_assignment = pin_conf[io_pin];
+    *source_id = init_int_source_id[io_pin];
+    return MESA_RC_OK;
 }
 
 static mesa_port_no_t srvlt_map_sgpio_to_port(meba_board_state_t *board,
@@ -947,7 +971,7 @@ static mesa_rc servalt_event_enable(meba_inst_t inst,
                 }
                 if (is_phy_port(board->port[port_no].map.cap)) {
                     T_D(inst, "port(%d) %sable FLNK", port_no, enable ? "en" : "dis");
-                    if ((rc = mesa_phy_event_enable_set(PHY_INST, port_no, MESA_PHY_LINK_FFAIL_EV, enable)) != MESA_RC_OK) {
+                    if ((rc = vtss_phy_event_enable_set(PHY_INST, port_no, VTSS_PHY_LINK_FFAIL_EV, enable)) != MESA_RC_OK) {
                         T_E(inst, "Could not enable event for dev #%d = %d", port_no, rc);
                     }
                 }
@@ -1225,6 +1249,7 @@ meba_inst_t meba_initialize(size_t callouts_size, const meba_board_interface_t *
     inst->api.meba_event_enable               = servalt_event_enable;
     inst->api.meba_deinitialize               = meba_deinitialize;
     inst->api.meba_ptp_rs422_conf_get         = servalt_ptp_rs422_conf_get;
+    inst->api.meba_ptp_external_io_conf_get   = servalt_ptp_external_io_conf_get;
 
     inst->api_synce = meba_synce_get();
     inst->api_tod = meba_tod_get();

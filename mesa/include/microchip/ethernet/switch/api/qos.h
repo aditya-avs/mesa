@@ -250,13 +250,24 @@ typedef struct {
 // Shaper Accounting Mode
 typedef enum {
     MESA_SHAPER_MODE_LINE, // Use line-rate for the shaper
-    MESA_SHAPER_MODE_DATA  // Use data-rate for the shaper
+    MESA_SHAPER_MODE_DATA, // Use data-rate for the shaper
+    MESA_SHAPER_MODE_FRAME CAP(QOS_EGRESS_SHAPER_FRAME) // Use frame-rate for the shaper
 } mesa_shaper_mode_t CAP(QOS_EGRESS_SHAPERS_RT);
 
 // Shaper
 typedef struct {
-    mesa_burst_level_t level;          // CBS (Committed Burst Size). Unit: bytes
-    mesa_bitrate_t     rate;           // CIR (Committed Information Rate). Unit: kbps. Use MESA_BITRATE_DISABLED to disable shaper
+    // CBS (Committed Burst Size).
+    // Unit: bytes
+    //
+    // If mode is set to MESA_SHAPER_MODE_FRAME, then unit is number-of-frames
+    mesa_burst_level_t level;
+
+    // CIR (Committed Information Rate).
+    // Unit: kbps. Use MESA_BITRATE_DISABLED to disable shaper
+    //
+    // If mode is set to MESA_SHAPER_MODE_FRAME, then unit is frames/s
+    mesa_bitrate_t     rate;
+
     mesa_burst_level_t ebs CAP(QOS_EGRESS_SHAPERS_DLB); // EBS (Excess Burst Size).  Unit: bytes
     mesa_bitrate_t     eir CAP(QOS_EGRESS_SHAPERS_DLB); // EIR (Excess Information Rate). Unit: kbps. Use MESA_BITRATE_DISABLED to disable DLB
     mesa_shaper_mode_t mode CAP(QOS_EGRESS_SHAPERS_RT); // RT (Rate type)

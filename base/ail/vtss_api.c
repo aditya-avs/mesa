@@ -3,15 +3,7 @@
 
 
 #include "vtss_api.h"
-
-#if defined(VTSS_OPT_PHY_TIMESTAMP)
-#include "vtss_phy_ts_api.h"
 #include "vtss_state.h"
-#include "../phy/ts/vtss_phy_ts.h"
-#else
-#include "vtss_state.h"
-#endif
-
 #include "vtss_common.h"
 
 #if defined(VTSS_ARCH_LUTON26)
@@ -33,15 +25,6 @@
 #if defined(VTSS_ARCH_LAN966X)
 #include "../lan966x/vtss_lan966x.h"
 #endif
-
-#if defined(VTSS_CHIP_CU_PHY) || defined(VTSS_CHIP_10G_PHY)
-#if defined (VTSS_OPT_PHY_TIMESTAMP)
-#include "../phy/ts/vtss_phy_ts.h"
-#endif /* VTSS_OPT_PHY_TIMESTAMP */
-#if defined (VTSS_FEATURE_MACSEC)
-#include "../phy/macsec/vtss_macsec.h"
-#endif /* VTSS_FEATURE_MACSEC */
-#endif /* VTSS_CHIP_CU_PHY || VTSS_CHIP_10G_PHY*/
 
 /* Default instance */
 vtss_inst_t vtss_default_inst = NULL;
@@ -220,17 +203,6 @@ static vtss_rc vtss_inst_default_set(vtss_state_t *vtss_state)
 
     vtss_state->port_count = VTSS_PORTS;
 
-#if defined(VTSS_CHIP_10G_PHY)
-    {
-        vtss_port_no_t port_no;
-
-        for (port_no = VTSS_PORT_NO_START; port_no < VTSS_PORT_NO_END; port_no++) {
-            vtss_state->phy_10g_api_base_no = VTSS_PORT_NO_NONE;
-            vtss_state->phy_10g_state[port_no].phy_88_event_B = FALSE;
-        }
-    }
-#endif
-
 #if defined(VTSS_FEATURE_SYNCE)
     {
         u32               i;
@@ -239,31 +211,6 @@ static vtss_rc vtss_inst_default_set(vtss_state_t *vtss_state)
         }
     }
 #endif /* VTSS_FEATURE_SYNCE*/
-
-#if defined(VTSS_FEATURE_MACSEC)
-    {
-        vtss_macsec_internal_conf_t  *macsec;
-        vtss_port_no_t    port_no;
-        u16 secy, sc, sa;
-        for (port_no = VTSS_PORT_NO_START; port_no < VTSS_PORT_NO_END; port_no++) {
-            macsec = &vtss_state->macsec_conf[port_no];
-            for (secy = 0; secy < VTSS_MACSEC_MAX_SECY; secy++) {
-                for (sc = 0; sc < VTSS_MACSEC_MAX_SC_RX; sc++) {
-                    macsec->secy[secy].rx_sc[sc] = NULL;
-                }
-                for (sa = 0; sa < VTSS_MACSEC_SA_PER_SC; sa++) {
-                macsec->secy[secy].tx_sc.sa[sa] = NULL;
-                }
-            }
-
-            for (sc = 0; sc < VTSS_MACSEC_MAX_SC_RX; sc++) {
-                for (sa = 0; sa < VTSS_MACSEC_SA_PER_SC; sa++) {
-                    macsec->rx_sc[sc].sa[sa] = NULL;
-                }
-            }
-        }
-    }
-#endif /* VTSS_FEATURE_MACSEC */
 
     VTSS_D("exit");
     return VTSS_RC_OK;
@@ -280,28 +227,12 @@ vtss_rc vtss_inst_create(const vtss_inst_create_t *const create,
     if ((vtss_state = VTSS_OS_MALLOC(sizeof(*vtss_state), VTSS_MEM_FLAGS_NONE)) == NULL)
         return VTSS_RC_ERROR;
 
-    memset(vtss_state, 0, sizeof(*vtss_state));
+    VTSS_MEMSET(vtss_state, 0, sizeof(*vtss_state));
     vtss_state->cookie = VTSS_STATE_COOKIE;
     vtss_state->create = *create;
     vtss_state->chip_count = 1;
 
     switch (create->target) {
-    case VTSS_TARGET_CU_PHY:
-        arch = VTSS_ARCH_CU_PHY;
-#if defined(VTSS_FEATURE_WIS)
-        if (vtss_phy_inst_ewis_create(vtss_state) != VTSS_RC_OK)  {
-            VTSS_E("Could not hook up ewis functions")
-        }
-#endif
-        break;
-    case VTSS_TARGET_10G_PHY:
-        arch = VTSS_ARCH_10G_PHY;
-#if defined(VTSS_FEATURE_WIS)
-        if (vtss_phy_inst_ewis_create(vtss_state) != VTSS_RC_OK)  {
-            VTSS_E("Could not hook up ewis functions")
-        }
-#endif
-        break;
 #if defined(VTSS_ARCH_OCELOT)
     case VTSS_TARGET_7511:
     case VTSS_TARGET_7512:
@@ -422,11 +353,6 @@ vtss_rc vtss_inst_create(const vtss_inst_create_t *const create,
     VTSS_RC(vtss_ts_inst_create(vtss_state));
 #endif /* VTSS_FEATURE_TIMESTAMP */
 
-#if defined(VTSS_CHIP_10G_PHY)
-    VTSS_RC(vtss_phy_10g_inst_venice_create(vtss_state));
-    VTSS_RC(vtss_phy_10g_inst_malibu_create(vtss_state));
-#endif /* VTSS_CHIP_10G_PHY */
-
     /* Setup default instance */
     if (vtss_default_inst == NULL)
         vtss_default_inst = vtss_state;
@@ -481,18 +407,7 @@ vtss_rc vtss_init_conf_set(const vtss_inst_t              inst,
     VTSS_D("enter");
     if ((rc = vtss_inst_check(inst, &vtss_state)) == VTSS_RC_OK) {
         vtss_state->init_conf = *conf;
-        if (vtss_state->create.target != VTSS_TARGET_CU_PHY &&
-            vtss_state->create.target != VTSS_TARGET_10G_PHY) {
-            rc = VTSS_FUNC_0(cil.init_conf_set);
-        }
-#if defined(VTSS_CHIP_CU_PHY)
-        if (rc == VTSS_RC_OK)
-            rc = vtss_phy_init_conf_set(vtss_state);
-#endif /* VTSS_CHIP_CU_PHY */
-#if defined(VTSS_CHIP_10G_PHY)
-        if (rc == VTSS_RC_OK)
-            rc = vtss_phy_10g_init_conf_set(vtss_state);
-#endif /* VTSS_CHIP_10G_PHY */
+        rc = VTSS_FUNC_0(cil.init_conf_set);
         vtss_state->warm_start_prev = vtss_state->warm_start_cur;
     } else {
         VTSS_E("Initialization check failed");
@@ -650,6 +565,9 @@ const char *vtss_port_if_txt(vtss_port_interface_t if_type)
     case VTSS_PORT_INTERFACE_MII:           return "MII";
     case VTSS_PORT_INTERFACE_GMII:          return "GMII";
     case VTSS_PORT_INTERFACE_RGMII:         return "RGMII";
+    case VTSS_PORT_INTERFACE_RGMII_ID:      return "RGMII_ID";
+    case VTSS_PORT_INTERFACE_RGMII_RXID:    return "RGMII_RXID";
+    case VTSS_PORT_INTERFACE_RGMII_TXID:    return "RGMII_TXID";
     case VTSS_PORT_INTERFACE_TBI:           return "TBI";
     case VTSS_PORT_INTERFACE_RTBI:          return "RTBI";
     case VTSS_PORT_INTERFACE_SGMII:         return "SGMII";
@@ -666,7 +584,7 @@ const char *vtss_port_if_txt(vtss_port_interface_t if_type)
     case VTSS_PORT_INTERFACE_SFI:           return "SFI";
     case VTSS_PORT_INTERFACE_USGMII:        return "USGMII";
     case VTSS_PORT_INTERFACE_SXGMII:        return "SXGMII";
-    case VTSS_PORT_INTERFACE_QXGMII:        return "QXGMII";
+    case VTSS_PORT_INTERFACE_QXGMII:        return "USX_QXGMII";
     case VTSS_PORT_INTERFACE_DXGMII_10G:    return "DXGMII_10G";
     case VTSS_PORT_INTERFACE_DXGMII_5G:     return "DXGMII_5G";
     case VTSS_PORT_INTERFACE_CPU:           return "CPU";
@@ -691,12 +609,13 @@ const char *vtss_port_spd_txt(vtss_port_speed_t speed)
     return "?   ";
 }
 
-#if defined(VTSS_FEATURE_PORT_CONTROL) || defined(VTSS_CHIP_10G_PHY)
+#if defined(VTSS_FEATURE_PORT_CONTROL)
 
 const char *vtss_serdes_if_txt(vtss_serdes_mode_t serdes)
 {
     switch (serdes) {
     case VTSS_SERDES_MODE_DISABLE:   return "Disabled";
+    case VTSS_SERDES_MODE_NONE:      return "None";
     case VTSS_SERDES_MODE_XAUI_12G:  return "XAUI_12G";
     case VTSS_SERDES_MODE_XAUI:      return "XAUI";
     case VTSS_SERDES_MODE_RXAUI:     return "RXAUI";
@@ -718,7 +637,7 @@ const char *vtss_serdes_if_txt(vtss_serdes_mode_t serdes)
     case VTSS_SERDES_MODE_TEST_MODE: return "TEST";
     case VTSS_SERDES_MODE_USXGMII:   return "USXGMII";
     case VTSS_SERDES_MODE_USGMII:    return "USGMII";
-    case VTSS_SERDES_MODE_QXGMII:    return "QXGMII";
+    case VTSS_SERDES_MODE_QXGMII:    return "USX_QXGMII";
     case VTSS_SERDES_MODE_DXGMII_10G:return "DXGMII_10G";
     case VTSS_SERDES_MODE_DXGMII_5G: return "DXGMII_5G";
     }
@@ -913,45 +832,6 @@ vtss_rc vtss_synce_synce_station_clk_out_get(const vtss_inst_t            inst,
 #if defined(VTSS_FEATURE_WARM_START)
 static vtss_rc vtss_restart_sync(vtss_state_t *vtss_state)
 {
-    vtss_port_no_t port_no;
-    vtss_rc rc = VTSS_RC_OK;
-
-    for (port_no = VTSS_PORT_NO_START; port_no < vtss_state->port_count; port_no++) {
-#if defined(VTSS_CHIP_CU_PHY)
-        rc = vtss_phy_sync(vtss_state, port_no);
-        if (rc != VTSS_RC_OK) {
-            VTSS_D("vtss_phy_sync port(%d) return rc(0x%04X)", port_no, rc);
-        }
-
-#endif /* VTSS_CHIP_CU_PHY */
-#if defined(VTSS_CHIP_10G_PHY)
-        rc = vtss_phy_10g_sync(vtss_state, port_no);
-        if (rc != VTSS_RC_OK) {
-            VTSS_D("vtss_phy_10g_sync port(%d) return rc(0x%04X)", port_no, rc);
-        }
-#if defined(VTSS_FEATURE_WIS)
-        VTSS_RC(vtss_phy_ewis_sync(vtss_state, port_no));
-#endif /* VTSS_FEATURE_WIS */
-#endif /* VTSS_CHIP_10G_PHY */
-
-#if defined (VTSS_OPT_PHY_TIMESTAMP)
-        rc = vtss_phy_ts_sync(vtss_state, port_no);
-        if (rc != VTSS_RC_OK) {
-            VTSS_D("vtss_phy_ts_sync port(%d) return rc(0x%04X)", port_no, rc);
-        }
-#endif /* VTSS_OPT_PHY_TIMESTAMP */
-#if defined (VTSS_FEATURE_MACSEC)
-        rc = vtss_macsec_sync(vtss_state, port_no);
-        if (rc != VTSS_RC_OK) {
-            VTSS_D("vtss_macsec_sync port(%d) return rc(0x%04X)", port_no, rc);
-        }
-#endif /* VTSS_FEATURE_MACSEC */
-    }
-    if (vtss_state->create.target == VTSS_TARGET_CU_PHY ||
-        vtss_state->create.target == VTSS_TARGET_10G_PHY) {
-        return VTSS_RC_OK;
-    }
-
 #if defined(VTSS_FEATURE_PORT_CONTROL)
     VTSS_RC(vtss_port_restart_sync(vtss_state));
 #endif /* VTSS_FEATURE_PORT_CONTROL */
@@ -976,19 +856,7 @@ static vtss_rc vtss_restart_cur_set(vtss_state_t *vtss_state, const vtss_restart
     vtss_rc rc = VTSS_RC_OK;
 
     vtss_state->restart_cur = restart;
-
-    if (vtss_state->create.target != VTSS_TARGET_CU_PHY &&
-        vtss_state->create.target != VTSS_TARGET_10G_PHY) {
-        rc = VTSS_FUNC_0(cil.restart_conf_set);
-    }
-#if defined(VTSS_CHIP_CU_PHY)
-    if (rc == VTSS_RC_OK)
-        rc = vtss_phy_restart_conf_set(vtss_state);
-#endif /* VTSS_CHIP_CU_PHY */
-#if defined(VTSS_CHIP_10G_PHY)
-    if (rc == VTSS_RC_OK)
-        rc = vtss_phy_10g_restart_conf_set(vtss_state);
-#endif /* VTSS_CHIP_10G_PHY */
+    rc = VTSS_FUNC_0(cil.restart_conf_set);
     return rc;
 }
 
@@ -1069,13 +937,15 @@ vtss_rc vtss_restart_conf_set(const vtss_inst_t inst,
 }
 #endif /* VTSS_FEATURE_WARM_START */
 
+#if VTSS_OPT_DEBUG_PRINT
+
 /* - Debug information functions ------------------------------- */
 
 vtss_rc vtss_debug_info_get(vtss_debug_info_t *const info)
 {
     vtss_port_no_t port_no;
 
-    memset(info, 0, sizeof(*info));
+    VTSS_MEMSET(info, 0, sizeof(*info));
     info->chip_no = VTSS_CHIP_NO_ALL;
     for (port_no = VTSS_PORT_NO_START; port_no < VTSS_PORT_NO_END; port_no++)
         info->port_list[port_no] = 1;
@@ -1096,6 +966,7 @@ vtss_rc vtss_debug_info_print(const vtss_inst_t         inst,
 
     return rc;
 }
+#endif // VTSS_OPT_DEBUG_PRINT
 
 vtss_rc vtss_debug_lock(const vtss_inst_t       inst,
                         const vtss_debug_lock_t *const lock)

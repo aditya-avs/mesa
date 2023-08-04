@@ -276,20 +276,23 @@ u32 vtss_fa_dev_tgt(vtss_state_t *vtss_state, vtss_port_no_t port_no);
 #define FA_SERDES_TYPE_10G 10
 #define FA_SERDES_TYPE_25G 25
 vtss_rc vtss_fa_port2sd(vtss_state_t *vtss_state, vtss_port_no_t port_no, u32 *sd_indx, u32 *sd_type);
+u32 vtss_fa_sd_lane_indx(vtss_state_t *vtss_state, vtss_port_no_t port_no);
 vtss_rc vtss_fa_sd_cfg(vtss_state_t *vtss_state, vtss_port_no_t port_no, vtss_serdes_mode_t mode);
 vtss_rc vtss_fa_cmu_cfg(vtss_state_t *vtss_state, u32 cmu_id);
 vtss_rc vtss_fa_sd25g_init(vtss_state_t *vtss_state, u32 sd_id);
 u32 vtss_fa_sd10g28_get_cmu (vtss_state_t *vtss_state, vtss_sd10g28_cmu_t cmu_type, vtss_port_no_t port_no);
 u32 vtss_fa_port2sd_indx(vtss_state_t *vtss_state, vtss_port_no_t port_no);
-vtss_rc vtss_fa_cmu_init(vtss_state_t *vtss_state);
+vtss_rc vtss_fa_serdes_init(vtss_state_t *vtss_state);
 vtss_rc  vtss_ant_sd10g28_cmu_reg_cfg(vtss_state_t *vtss_state, u32 cmu_num);
 vtss_rc fa_debug_chip_serdes(vtss_state_t *vtss_state,  const vtss_debug_printf_t pr,
                              const vtss_debug_info_t   *const info, vtss_port_no_t port_no);
 vtss_rc fa_debug_serdes_set(vtss_state_t *vtss_state, const vtss_port_no_t port_no,
                             const vtss_port_serdes_debug_t *const conf);
 
-#if defined(VTSS_FEATURE_PORT_KR_IRQ)
 vtss_rc fa_kr_eye_height(vtss_state_t *vtss_state,  vtss_port_no_t port_no, u32 action, u32 *ret_val);
+vtss_rc fa_serdes_ctle_adjust(vtss_state_t *vtss_state, const vtss_debug_printf_t pr,
+                              u32 port_no, BOOL ro, u32 *vga, u32 *eqr, u32 *eqc);
+#if defined(VTSS_FEATURE_PORT_KR_IRQ)
 vtss_rc fa_kr_coef2status(vtss_state_t *vtss_state,
                           const vtss_port_no_t port_no,
                           const u16 coef_in,
@@ -303,8 +306,6 @@ vtss_rc fa_serdes_40b_mode(vtss_state_t *vtss_state, u32 port_no);
 
 vtss_rc fa_port_kr_tap_set(vtss_state_t *vtss_state, const vtss_port_no_t port_no,
                            u16 tap_dly, u16 tap_adv, u16 ampl);
-vtss_rc fa_serdes_ctle_adjust(vtss_state_t *vtss_state, const vtss_debug_printf_t pr,
-                              u32 port_no, BOOL ro, u32 *vga, u32 *eqr, u32 *eqc);
 #endif
     
 

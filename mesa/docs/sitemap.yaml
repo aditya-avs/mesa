@@ -11,6 +11,27 @@ pages:
 
     - name: "Release notes"
       pages:
+        - name: "MESA-2023.06"
+          src:  "mesa/docs/release-notes/mesa-2023.06.adoc"
+
+        - name: "MESA-2023.03"
+          src:  "mesa/docs/release-notes/mesa-2023.03.adoc"
+
+        - name: "MESA-2022.12"
+          src:  "mesa/docs/release-notes/mesa-2022.12.adoc"
+
+        - name: "MESA-2022.09"
+          src:  "mesa/docs/release-notes/mesa-2022.09.adoc"
+
+        - name: "MESA-2022.06"
+          src:  "mesa/docs/release-notes/mesa-2022.06.adoc"
+
+        - name: "MESA-2022.03"
+          src:  "mesa/docs/release-notes/mesa-2022.03.adoc"
+
+        - name: "MESA-2021.12"
+          src:  "mesa/docs/release-notes/mesa-2021.12.adoc"
+
         - name: "MESA-2021.09"
           src:  "mesa/docs/release-notes/mesa-2021.09.adoc"
 
@@ -170,19 +191,15 @@ pages:
 
     - name: "MESA API Reference"
       pages:
-        - src:  "mesa/include/microchip/ethernet/common.h"
+        - src:  "me/include/microchip/ethernet/common.h"
         - src:  "mesa/include/microchip/ethernet/switch/api/afi.h"
         - src:  "mesa/include/microchip/ethernet/switch/api/capability.h"
         - src:  "mesa/include/microchip/ethernet/switch/api/clock.h"
         - src:  "mesa/include/microchip/ethernet/switch/api/init.h"
         - src:  "mesa/include/microchip/ethernet/switch/api/l2.h"
         - src:  "mesa/include/microchip/ethernet/switch/api/l3.h"
-        - src:  "mesa/include/microchip/ethernet/switch/api/macsec.h"
         - src:  "mesa/include/microchip/ethernet/switch/api/misc.h"
         - src:  "mesa/include/microchip/ethernet/switch/api/packet.h"
-        - src:  "mesa/include/microchip/ethernet/switch/api/phy_10g.h"
-        - src:  "mesa/include/microchip/ethernet/switch/api/phy_1g.h"
-        - src:  "mesa/include/microchip/ethernet/switch/api/phy_ts.h"
         - src:  "mesa/include/microchip/ethernet/switch/api/port.h"
         - src:  "mesa/include/microchip/ethernet/switch/api/port_list.h"
         - src:  "mesa/include/microchip/ethernet/switch/api/qos.h"
@@ -193,7 +210,6 @@ pages:
         - src:  "mesa/include/microchip/ethernet/switch/api/types.h"
         - src:  "mesa/include/microchip/ethernet/switch/api/vop.h"
         - src:  "mesa/include/microchip/ethernet/switch/api/mrp.h"
-        - src:  "mesa/include/microchip/ethernet/switch/api/wis.h"
 
     - name: "MEBA API Reference"
       pages:

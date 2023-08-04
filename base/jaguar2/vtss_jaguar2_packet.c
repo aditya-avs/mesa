@@ -154,12 +154,10 @@ static void jr2_packet_ts_cnt_sub(u32 *r, u32 x, u32 y)
     if (x < y) {*r += VTSS_HW_TIME_WRAP_LIMIT;} /* time counter has wrapped */
 }
 
-#if defined(VTSS_OPT_PHY_TIMESTAMP)
 static u32 jr2_packet_unpack32(const u8 *buf)
 {
     return (buf[0]<<24) + (buf[1]<<16) + (buf[2]<<8) + buf[3];
 }
-#endif
 
 static vtss_rc jr2_ptp_get_timestamp(vtss_state_t                    *vtss_state,
                                      const u8                        *const frm,
@@ -170,7 +168,6 @@ static vtss_rc jr2_ptp_get_timestamp(vtss_state_t                    *vtss_state
                                      BOOL                            *timestamp_ok)
 {
     if (ts_props.ts_feature_is_PTS) {
-#if defined(VTSS_OPT_PHY_TIMESTAMP)
         u32 packet_ns = jr2_packet_unpack32(frm);
         if (ts_props.phy_ts_mode == VTSS_PACKET_INTERNAL_TC_MODE_30BIT) {
             /* convert to jaguar 32 bit NSF */
@@ -191,9 +188,6 @@ static vtss_rc jr2_ptp_get_timestamp(vtss_state_t                    *vtss_state
         } else {
             VTSS_I("PHY timestamp mode %d not supported", ts_props.phy_ts_mode);
         }
-#else
-        VTSS_I("PHY timestamp feature not supported");
-#endif
     } else {
         u32 ns_32 = rx_info->hw_tstamp >> 16;   /* The HW time stamp is in 16 bit fractions of nanoseconds */
         *timestamp_ok = rx_info->hw_tstamp_decoded;
@@ -603,7 +597,7 @@ static vtss_rc jr2_rx_hdr_decode(const vtss_state_t          *const state,
         return VTSS_RC_ERROR;
     }
 
-    memset(info, 0, sizeof(*info));
+    VTSS_MEMSET(info, 0, sizeof(*info));
 
     info->hw_tstamp         = (u64)tstamp<<16;
     info->length            = meta->length;
@@ -677,9 +671,10 @@ static vtss_rc jr2_rx_frame(vtss_state_t         *vtss_state,
         VTSS_RC(jr2_rx_frame_get_internal(vtss_state, grp, ifh, data, buflen, &length));
 
         /* IFH is done separately because of alignment needs */
-        memcpy(xtr_hdr, ifh, sizeof(ifh));
-        memset(&meta, 0, sizeof(meta));
+        VTSS_MEMCPY(xtr_hdr, ifh, sizeof(ifh));
+        VTSS_MEMSET(&meta, 0, sizeof(meta));
         meta.length = (length - 4);
+        meta.etype = (data[12] << 8) | data[13];
         p = &data[length - 4];
         meta.fcs = ((p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3]);
         rc = jr2_rx_hdr_decode(vtss_state, &meta, xtr_hdr, rx_info);

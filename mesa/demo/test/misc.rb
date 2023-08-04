@@ -109,6 +109,34 @@ test "forward-loop-2.5G" do
     $ts.dut.run("mesa-cmd port stati pa")
 end
 
+test "forward-loop-aqr" do
+    break
+    idx_tx = 0
+    idx_rx = 1
+    p0 = $ts.dut.p[idx_tx]
+    p1 = $ts.dut.p[idx_rx]
+
+    # Hard-coded loop ports
+    lp0 = 48
+    lp1 = 49
+    #$ts.dut.run("mesa-cmd port adv #{lp0 + 1} 10g dis")
+    sleep(3)
+    dut_port_state_up([lp0, lp1])
+
+    # Port-to-port forwarding via loop ports
+    $ts.dut.call("mesa_vlan_port_members_set", 1, "#{p1},#{lp0}")
+    $ts.dut.call("mesa_pvlan_port_members_set", 0, "#{p0},#{lp0}")
+    $ts.dut.call("mesa_pvlan_port_members_set", 1, "#{p1},#{lp1}")
+
+    # Forwarding via loop ports
+    cmd = "sudo ef name f1 eth "
+    cmd += "tx #{$ts.pc.p[idx_tx]} name f1 "
+    cmd += "rx #{$ts.pc.p[idx_rx]} name f1 "
+    $ts.pc.run(cmd)
+    $ts.dut.run("mesa-cmd port mode")
+    $ts.dut.run("mesa-cmd port stati pa")
+end
+
 test "led-control" do
     break
     $ts.dut.p.each_with_index do |port, i|
@@ -167,4 +195,131 @@ test "timestamp" do
         rx = t[idx_rx]
         t_i("Index #{i}: tx: #{tx}, rx: #{rx}, tx - rx: #{tx - rx}")
     end
+end
+
+test "acl-port-counter" do
+    break
+    idx = 0
+    port = $ts.dut.p[idx]
+    conf = $ts.dut.call("mesa_acl_port_conf_get", port)
+    conf["action"]["port_action"] = "MESA_ACL_PORT_ACTION_FILTER"
+    $ts.dut.call("mesa_acl_port_conf_set", port, conf)
+    m = {
+        vid_mac: { vid: 1, mac: { addr: [255,255,255,255,255,255] } },
+        destination: "#{$ts.dut.p[1]}",
+        copy_to_cpu: true,
+        copy_to_cpu_smac: false,
+        locked: true,
+        index_table: false,
+        aged: false,
+        cpu_queue: 0,
+    }
+    $ts.dut.call("mesa_mac_table_add", m)
+    run_ef_tx_rx_cmd($ts, idx, [], "eth")
+    $ts.dut.run("mesa-cmd port stati pa")
+    cnt = $ts.dut.call("mesa_port_counters_get", port)["bridge"]["dot1dTpPortInDiscards"]
+    check_counter("Filtered", cnt, 1)
+end
+
+test "fwd-drop-count" do
+    break
+    # If a frame is dropped for one egress port, the ingress port drop counter increments
+    idx = 0
+    $ts.dut.run("mesa-cmd port flow control disable")
+    $ts.dut.run("mesa-cmd port adv #{$ts.dut.p[1] + 1} 1000 dis")
+    sleep(5)
+    $ts.pc.run("ef name f1 eth tx #{$ts.pc.p[idx]} rep 1000000 name f1")
+    $ts.dut.run("mesa-cmd port stati pac")
+    $ts.dut.run("mesa-cmd port stati #{$ts.dut.p[idx] + 1}")
+end
+
+test "acl-cpu-queue" do
+    break
+    idx_tx = 0
+    idx_rx = 1
+    queue = 6
+    port = $ts.dut.p[idx_tx]
+    ace = $ts.dut.call("mesa_ace_init", "MESA_ACE_TYPE_ETYPE")
+    ace["id"] = 1
+    ace["port_list"] = "#{port}"
+    action = ace["action"]
+    action["port_action"] = "MESA_ACL_PORT_ACTION_FILTER"
+    action["cpu"] = true
+    action["cpu_queue"] = queue
+    action["ptp_action"] = "MESA_ACL_PTP_ACTION_ONE_STEP_SUB_DELAY_2"
+    $ts.dut.call("mesa_ace_add", 0, ace)
+    $ts.dut.run("mesa-cmd packet forward #{queue} #{$ts.dut.p[idx_rx] + 1}")
+    run_ef_tx_rx_cmd($ts, idx_tx, [idx_rx], "eth")
+end
+
+test "dlb-policer" do
+    break
+    idx = 0
+
+    # Ingress counters
+    istat = $ts.dut.call("mesa_ingress_cnt_alloc", 1)
+
+    # DLB policer
+    pol = $ts.dut.call("mesa_dlb_policer_alloc", 1)
+    conf = $ts.dut.call("mesa_dlb_policer_conf_get", pol, 0)
+    conf["enable"] = true
+    conf["cir"] = 100  # Current minimum rate in DLB API
+    conf["cbs"] = 1024 # Room for one frame
+    $ts.dut.call("mesa_dlb_policer_conf_set", pol, 0, conf)
+
+    # Ingress flow
+    iflow = $ts.dut.call("mesa_iflow_alloc")
+    conf = $ts.dut.call("mesa_iflow_conf_get", iflow)
+    conf["cnt_enable"] = true
+    conf["cnt_id"] = istat
+    conf["dlb_enable"] = true
+    conf["dlb_id"] = pol
+    $ts.dut.call("mesa_iflow_conf_set", iflow, conf)
+
+    # VCE
+    port = $ts.dut.p[idx]
+    vce = $ts.dut.call("mesa_vce_init", "MESA_VCE_TYPE_ANY")
+    vce["id"] = 1
+    vce["key"]["port_list"] = "#{port}"
+    action = vce["action"]
+    action["flow_id"] = iflow
+    $ts.dut.call("mesa_vce_add", 0, vce)
+
+    # Frame Tx
+    len = 1024
+    $ts.pc.run("sudo ef name f1 eth et 0xaaaa data pattern cnt #{len - 18} tx #{$ts.pc.p[idx]} rep 10 name f1")
+    $ts.dut.run("mesa-cmd port stati pac")
+end
+
+test "acl-etype-counter" do
+    break
+    idx = 0
+    port = $ts.dut.p[idx]
+    ace = $ts.dut.call("mesa_ace_init", "MESA_ACE_TYPE_ETYPE")
+    ace["id"] = 1
+    ace["port_list"] = "#{port}"
+    etype = ace["frame"]["etype"]["etype"]
+    etype["value"] = [0x89,0x02]
+    etype["mask"] = [0xff,0xff]
+    $ts.dut.call("mesa_ace_add", 0, ace)
+    run_ef_tx_rx_cmd($ts, idx, [1,2,3], "eth et 0x8902")
+    cnt = $ts.dut.call("mesa_ace_counter_get", ace["id"])
+    check_counter("ace", cnt, 1)
+end
+
+test "acl-frame-policer" do
+    break
+    idx = 0
+    pol = 0
+    port = $ts.dut.p[idx]
+    conf = $ts.dut.call("mesa_acl_port_conf_get", port)
+    action = conf["action"]
+    action["police"] = true
+    action["policer_no"] = pol
+    $ts.dut.call("mesa_acl_port_conf_set", port, conf)
+    conf = $ts.dut.call("mesa_acl_policer_conf_get", pol)
+    conf["rate"] = 30
+    $ts.dut.call("mesa_acl_policer_conf_set", pol, conf)
+    $ts.pc.run("ef name f1 eth tx #{$ts.pc.p[idx]} rep 100 name f1")
+    $ts.dut.run("mesa-cmd port stati pac")
 end

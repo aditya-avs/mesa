@@ -51,9 +51,9 @@ static vtss_rc srvl_eee_port_conf_set(vtss_state_t *vtss_state,
         // when the PHY has auto negotiated and have found that the link partner supports EEE.
         if (conf->lp_advertisement == 0) {
             VTSS_I("Link partner doesn't support EEE - Keeping EEE disabled. Port:%d", chip_port);
-        } else if (!(vtss_state->phy_state[port_no].status.fdx)) {
+        } else if (!vtss_state->port.conf[port_no].fdx) {
             // EEE and Half duplex are not supposed to work together, so we disables EEE in the case where the port is in HDX mode.
-            VTSS_I("EEE disabled due to that port is in HDX mode, port:%d, fdx:%d", chip_port, vtss_state->phy_state[port_no].status.fdx);
+            VTSS_I("EEE disabled due to that port is in HDX mode, port:%d", chip_port);
         } else {
             eee_cfg_reg |= VTSS_F_DEV_PORT_MODE_EEE_CFG_EEE_ENA;
         }
@@ -592,7 +592,7 @@ static vtss_rc srvl_misc_irq_status(vtss_state_t *vtss_state, vtss_irq_status_t 
 {
     u32 val, uio_irqs, dest;
 
-    memset(status, 0, sizeof(*status));
+    VTSS_MEMSET(status, 0, sizeof(*status));
 
     // Which interrupts are taken care of in user-space?
     if (vtss_state->sys_config.using_pcie) {
@@ -805,6 +805,33 @@ static vtss_rc srvl_gpio_write(vtss_state_t *vtss_state,
     return VTSS_RC_OK;
 }
 
+static vtss_rc srvl_gpio_event_enable(vtss_state_t          *vtss_state,
+                                      const vtss_chip_no_t  chip_no,
+                                      const vtss_gpio_no_t  gpio_no,
+                                      const BOOL            enable)
+{
+    u32 mask = VTSS_BIT(gpio_no);
+
+    SRVL_WRM_CTL(VTSS_DEVCPU_GCB_GPIO_GPIO_INTR_ENA, enable, mask);
+    return VTSS_RC_OK;
+}
+
+static vtss_rc srvl_gpio_event_poll(vtss_state_t          *vtss_state,
+                                    const vtss_chip_no_t  chip_no,
+                                    BOOL                  *const events)
+{
+    u32 pending, mask, i;
+
+    SRVL_RD(VTSS_DEVCPU_GCB_GPIO_GPIO_INTR, &pending);
+    SRVL_RD(VTSS_DEVCPU_GCB_GPIO_GPIO_INTR_ENA, &mask);
+    pending &= mask;
+    SRVL_WR(VTSS_DEVCPU_GCB_GPIO_GPIO_INTR, pending);
+    for (i = 0; i < 32; i++) {
+        events[i] = (pending & VTSS_BIT(i) ? TRUE : FALSE);
+    }
+    return VTSS_RC_OK;
+}
+
 static vtss_rc srvl_sgpio_event_poll(vtss_state_t *vtss_state,
                                      const vtss_chip_no_t     chip_no,
                                      const vtss_sgpio_group_t group,
@@ -981,7 +1008,7 @@ static vtss_rc srvl_sgpio_conf_set(vtss_state_t *vtss_state,
                          VTSS_F_DEVCPU_GCB_SIO_CTRL_SIO_PORT_CFG_BIT_SOURCE(value) |
                          VTSS_F_DEVCPU_GCB_SIO_CTRL_SIO_PORT_CFG_BIT_POLARITY(pol << bit_idx),
                          VTSS_F_DEVCPU_GCB_SIO_CTRL_SIO_PORT_CFG_BIT_SOURCE(mask) |
-                         VTSS_M_DEVCPU_GCB_SIO_CTRL_SIO_PORT_CFG_BIT_POLARITY);
+                         VTSS_F_DEVCPU_GCB_SIO_CTRL_SIO_PORT_CFG_BIT_POLARITY(1 << bit_idx));
             }
 
             /* Setup the interrupt polarity */
@@ -1053,7 +1080,7 @@ static vtss_rc srvl_debug_misc(vtss_state_t *vtss_state,
     SRVL_DEBUG_TGT(pr, OAM_MEP);
 #endif  /* VTSS_TO_OAM_MEP */
     for (i = 0; i < VTSS_CHIP_PORTS; i++) {
-        sprintf(buf, "DEV_%u", i);
+        VTSS_SPRINTF(buf, "DEV_%u", i);
         srvl_debug_tgt(pr, buf, VTSS_TO_DEV(i));
     }
     pr("\n");
@@ -1173,6 +1200,8 @@ vtss_rc vtss_srvl_misc_init(vtss_state_t *vtss_state, vtss_init_cmd_t cmd)
         state->gpio_mode = vtss_srvl_gpio_mode;
         state->gpio_read = srvl_gpio_read;
         state->gpio_write = srvl_gpio_write;
+        state->gpio_event_enable = srvl_gpio_event_enable;
+        state->gpio_event_poll = srvl_gpio_event_poll;
         state->sgpio_conf_set = srvl_sgpio_conf_set;
         state->sgpio_read = srvl_sgpio_read;
         state->sgpio_event_enable = srvl_sgpio_event_enable;

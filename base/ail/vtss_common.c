@@ -3,23 +3,10 @@
 
 
 #include "vtss_api.h"
-
-#if defined(VTSS_OPT_PHY_TIMESTAMP)
-#include "vtss_phy_ts_api.h"
 #include "vtss_state.h"
-#include "../phy/ts/vtss_phy_ts.h"
-#else
-#include "vtss_state.h"
-#endif
-
 #include "vtss_common.h"
 #include "vtss_util.h" // For VTSS_ENCODE_BITFIELD
 
-#if defined(VTSS_OPT_PHY_TIMESTAMP)
-#include "../phy/ts/vtss_phy_ts.h"
-#endif
-/*lint -esym(459, vtss_trace_conf) */
-/*lint -esym(459, vtss_state)      */
 /* Default mapping of PCP to QoS Class */
 /* Can also be used for default mapping of QoS class to PCP */
 /* This is the IEEE802.1Q-2011 recommended priority to traffic class mappings */
@@ -260,11 +247,12 @@ const char *vtss_bool_txt(BOOL enabled)
     return (enabled ? "Enabled" : "Disabled");
 }
 
+#if VTSS_OPT_DEBUG_PRINT
 void vtss_debug_print_header_underlined(const vtss_debug_printf_t pr,
                                         const char                *header,
                                         BOOL                      layer)
 {
-    int i, len = strlen(header);
+    int i, len = VTSS_STRLEN(header);
 
     pr("%s\n", header);
     for (i = 0; i < len; i++)
@@ -328,9 +316,6 @@ static const char *const vtss_debug_group_name[VTSS_DEBUG_GROUP_COUNT] = {
 #if defined(VTSS_FEATURE_AFI_SWC)
     [VTSS_DEBUG_GROUP_AFI]       = "AFI",
 #endif /* VTSS_FEATURE_AFI_SWC */
-#if defined(VTSS_FEATURE_MACSEC)
-    [VTSS_DEBUG_GROUP_MACSEC]    = "MacSec",
-#endif /* VTSS_FEATURE_MACSEC */
     [VTSS_DEBUG_GROUP_SERDES]    = "Serdes",
     [VTSS_DEBUG_GROUP_KR]        = "KR",
     [VTSS_DEBUG_GROUP_MUX]       = "MUX",
@@ -565,22 +550,9 @@ static vtss_rc vtss_debug_ail_print(vtss_state_t *vtss_state,
     vtss_misc_debug_print(vtss_state, pr, info);
 #endif /* VTSS_FEATURE_MISC */
 
-#if defined(VTSS_CHIP_CU_PHY)
-    VTSS_RC(vtss_phy_debug_info_print(vtss_state, pr, info, TRUE, FALSE, TRUE));
-#endif
-
-#if defined(VTSS_CHIP_10G_PHY)
-    VTSS_RC(vtss_phy_10g_debug_info_print(vtss_state, pr, info, 1));
-#endif /* VTSS_CHIP_10G_PHY */
-
 #if defined(VTSS_FEATURE_PORT_CONTROL)
     vtss_port_debug_print(vtss_state, pr, info);
 #endif /* VTSS_FEATURE_PORT_CONTROL */
-
-#if defined(VTSS_OPT_PHY_TIMESTAMP)
-    if(info->group == VTSS_DEBUG_GROUP_ALL || info->group == VTSS_DEBUG_GROUP_PHY_TS)
-        vtss_phy_ts_api_ail_debug_print(vtss_state, pr, info);
-#endif /* VTSS_OPT_PHY_TIMESTAMP */
 
 #if defined(VTSS_FEATURE_LAYER2)
     vtss_l2_debug_print(vtss_state, pr, info);
@@ -648,22 +620,8 @@ static vtss_rc vtss_debug_cil_print(vtss_state_t *vtss_state,
         if (info->chip_no != VTSS_CHIP_NO_ALL && chip_no != info->chip_no)
             continue;
         VTSS_SELECT_CHIP(chip_no);
-        sprintf(buf, "Chip Interface Layer[%u]", chip_no);
+        VTSS_SPRINTF(buf, "Chip Interface Layer[%u]", chip_no);
         vtss_debug_print_header_underlined(pr, buf, 1);
-#if defined(VTSS_CHIP_CU_PHY)
-        VTSS_RC(vtss_phy_debug_info_print(vtss_state, pr, info, FALSE, FALSE, TRUE));
-#endif
-#if defined(VTSS_CHIP_10G_PHY)
-        VTSS_RC(vtss_phy_10g_debug_info_print(vtss_state, pr, info, 0));
-#endif
-#if defined(VTSS_FEATURE_MACSEC)
-        VTSS_RC(vtss_debug_print_macsec(vtss_state, pr, info));
-#endif
-#if defined(VTSS_OPT_PHY_TIMESTAMP)
-        if (info->group == VTSS_DEBUG_GROUP_ALL || info->group == VTSS_DEBUG_GROUP_PHY_TS)
-            vtss_phy_ts_api_cil_debug_print(vtss_state, pr, info);
-
-#endif /* VTSS_OPT_PHY_TIMESTAMP */
         rc = VTSS_FUNC(cil.debug_info_print, pr, info);
     }
     return rc;
@@ -676,6 +634,7 @@ vtss_rc vtss_cmn_debug_info_print(vtss_state_t *vtss_state,
     VTSS_RC(vtss_debug_ail_print(vtss_state, pr, info));
     return vtss_debug_cil_print(vtss_state, pr, info);
 }
+#endif // VTSS_OPT_DEBUG_PRINT
 
 vtss_rc vtss_cmn_bit_from_one_hot_mask64(u64 mask, u32 *bit_pos)
 {

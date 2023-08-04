@@ -183,7 +183,7 @@ void vtss_l26_debug_reg_header(const vtss_debug_printf_t pr, const char *name)
 {
     char buf[64];
     
-    sprintf(buf, "%-18s  Tgt   Addr", name);
+    VTSS_SPRINTF(buf, "%-18s  Tgt   Addr", name);
     vtss_debug_print_reg_header(pr, buf);
 }
 
@@ -194,7 +194,7 @@ void vtss_l26_debug_reg(vtss_state_t *vtss_state,
     char buf[100];
 
     if (vtss_l26_rd(vtss_state, addr, &value) == VTSS_RC_OK) {
-        sprintf(buf, "%-18s  0x%02x  0x%04x", name, (addr >> 14) & 0x3f, addr & 0x3fff);
+        VTSS_SPRINTF(buf, "%-18s  0x%02x  0x%04x", name, (addr >> 14) & 0x3f, addr & 0x3fff);
         vtss_debug_print_reg(pr, buf, value);
     }
 }
@@ -204,7 +204,7 @@ void vtss_l26_debug_reg_inst(vtss_state_t *vtss_state,
 {
     char buf[64];
 
-    sprintf(buf, "%s_%u", name, i);
+    VTSS_SPRINTF(buf, "%s_%u", name, i);
     vtss_l26_debug_reg(vtss_state, pr, addr, buf);
 }
 
@@ -316,6 +316,10 @@ static vtss_rc l26_init_conf_set(vtss_state_t *vtss_state)
         VTSS_RC(l26_setup_cpu_if(conf));
     }
 #endif
+    // Flush extraction queues
+    L26_WR(VTSS_DEVCPU_QS_XTR_XTR_QU_FLUSH, VTSS_F_DEVCPU_QS_XTR_XTR_QU_FLUSH_FLUSH(3));
+    VTSS_MSLEEP(1);
+    L26_WR(VTSS_DEVCPU_QS_XTR_XTR_QU_FLUSH, VTSS_F_DEVCPU_QS_XTR_XTR_QU_FLUSH_FLUSH(0));
 
     /* Read chip ID to check CPU interface */
     VTSS_RC(vtss_l26_chip_id_get(vtss_state, &vtss_state->misc.chip_id));

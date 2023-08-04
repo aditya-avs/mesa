@@ -53,8 +53,8 @@ end
 %x{git ls-files}.split.each do |f|
   ext = File.extname(f)
   base = File.basename(f)
-  next if /mepa.src.aqr/ =~ f # TODO, we should actually check that all third-party code is MIT licensed, but we need not to check the copyright
-  next if /mepa.src.intel/ =~ f
+  next if /mepa.aqr/ =~ f # TODO, we should actually check that all third-party code is MIT licensed, but we need not to check the copyright
+  next if /mepa.intel/ =~ f
   next if "mesa/docs/resources/asciidoctor-default.css" == f
   next if "mesa/docs/capdb.yaml" == f
   next if "mesa/docs/resources/pygments.css" == f
@@ -62,6 +62,13 @@ end
   next if /mesa.docs.resources.font/ =~ f
   next if /mesa.docs.resources.jquery/ =~ f
   next if /mesa.docs.resources.bootstrap/ =~ f
+
+  next if "mepa/docs/resources/asciidoctor-default.css" == f
+  next if "mepa/docs/resources/pygments.css" == f
+  next if /mepa.docs.resources.font/ =~ f
+  next if /mepa.docs.resources.jquery/ =~ f
+  next if /mepa.docs.resources.bootstrap/ =~ f
+  next if /.cmake\/docker\/SimpleGridClient/ =~ f
 
   next if [".vsd", ".svg", ".png", ".graphml", ".xls", ".txt"].include? ext
   next if [".gitattributes", ".gitignore", "Gemfile.lock", "catch.hpp", "TODO"].include? base

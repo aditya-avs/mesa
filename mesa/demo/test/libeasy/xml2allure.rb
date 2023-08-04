@@ -245,7 +245,12 @@ class TestRun
         o["description"] = "no description"
         o["fullName"] = "no name"
 
-        @labels["parentSuite"] = @labels["platform"]
+        p = @labels["platform"]
+        b = @labels["git_branch"]
+        if (b != nil and b != "master")
+            p += "@#{b}"
+        end
+        @labels["parentSuite"] = p
         @labels["suite"] = @labels["test_suite"]
 
         o["labels"] = (@labels.to_a.map{|e| {"name": e[0], "value": e[1]}})
@@ -253,7 +258,7 @@ class TestRun
         o["name"] = @labels["filename"]
 
         o["parameters"] = [
-            {"name": "platform", "value": @labels["platform"]}
+            {"name": "platform", "value": p}
         ]
         o["stage"] = "finished"
         o["start"] = @ts_start
@@ -313,7 +318,7 @@ class Sample < ::Ox::Sax
                 if $env_prop_db[a[:name]].nil?
                     $env_prop_db[a[:name]] = e[:data]
                 else
-                    raise "env not stable!" if $env_prop_db[a[:name]] != e[:data]
+                    raise "env not stable!" if $env_prop_db[a[:name]] != e[:data] and a[:name] != "git_branch"
                 end
             end
 
@@ -536,5 +541,5 @@ end
 puts "Calling #{allurecmd}"
 system(allurecmd) #generating the allure Final report
 
-puts ">>Report Link => \e[42m#{options[:reports_url]}#{foldername}\e[0m"
+puts ">>Report Link => \e[42m #{options[:reports_url]}#{foldername} \e[0m"
 

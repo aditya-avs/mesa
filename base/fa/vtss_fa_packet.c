@@ -143,12 +143,10 @@ static vtss_rc fa_packet_ns_to_ts_cnt(vtss_state_t  *vtss_state,
     return VTSS_RC_OK;
 }
 
-#if defined(VTSS_OPT_PHY_TIMESTAMP)
 static u32 fa_packet_unpack32(const u8 *buf)
 {
     return (buf[0]<<24) + (buf[1]<<16) + (buf[2]<<8) + buf[3];
 }
-#endif
 
 static vtss_rc fa_ptp_get_timestamp(vtss_state_t                    *vtss_state,
                                     const u8                        *const frm,
@@ -159,19 +157,18 @@ static vtss_rc fa_ptp_get_timestamp(vtss_state_t                    *vtss_state,
                                     BOOL                            *timestamp_ok)
 {
     if (ts_props.ts_feature_is_PTS) {
-#if defined(VTSS_OPT_PHY_TIMESTAMP)
         u32 packet_ns = fa_packet_unpack32(frm);
         if (ts_props.phy_ts_mode == VTSS_PACKET_INTERNAL_TC_MODE_30BIT) {
             /* convert to jaguar 32 bit NSF */
             VTSS_D("ts_cnt before %u", packet_ns);
             (void)fa_packet_ns_to_ts_cnt(vtss_state, packet_ns, ts_cnt);
-            VTSS_D("ts_cnt after %u", *ts_cnt);
+            VTSS_D("ts_cnt after %" PRIu64, *ts_cnt);
             *timestamp_ok = rx_info->hw_tstamp_decoded;
         } else if (ts_props.phy_ts_mode == VTSS_PACKET_INTERNAL_TC_MODE_32BIT) {
             /* convert to jaguar 32 bit NSF */
             VTSS_D("ts_cnt before %u", packet_ns);
             (void)fa_packet_phy_cnt_to_ts_cnt(vtss_state, packet_ns, ts_cnt);
-            VTSS_D("ts_cnt after %u", *ts_cnt);
+            VTSS_D("ts_cnt after %" PRIu64, *ts_cnt);
             *timestamp_ok = rx_info->hw_tstamp_decoded;
         } else if (ts_props.phy_ts_mode == VTSS_PACKET_INTERNAL_TC_MODE_44BIT) {
             VTSS_I("ts_cnt can not be retrieved from the packet supress warning for mode %d ", ts_props.phy_ts_mode);
@@ -180,9 +177,6 @@ static vtss_rc fa_ptp_get_timestamp(vtss_state_t                    *vtss_state,
         } else {
             VTSS_I("PHY timestamp mode %d not supported", ts_props.phy_ts_mode);
         }
-#else
-        VTSS_I("PHY timestamp feature not supported");
-#endif
     } else {
         /* The hw_tstamp is a tc in 16 bit nano second fragments (46 (30 bits nsec + 16 bits sub nsec) wrapping) */
         *ts_cnt = rx_info->hw_tstamp;
@@ -234,56 +228,15 @@ static vtss_rc fa_rx_conf_set(vtss_state_t *vtss_state)
     vtss_packet_rx_queue_map_t *map = &conf->map;
     vtss_packet_rx_port_conf_t *port_conf;
     vtss_port_no_t             port_no;
-    u32                        port, i, j, cap_cfg, queue, max_req = 0;
+    u32                        port, i, j, cap_cfg, queue;
     BOOL                       cpu_only;
     vtss_fa_l2cp_conf_t        l2cp_conf;
 
-    // For the CPU ports, we use qlimit shared memory pool #1. All front ports
-    // use qlimit shared memory pool #0. In this way, we can set different
-    // watermarks for the CPU and for the front ports.
-    // fa_port_buf_qlim_set() has already configured the legacy QRES system to
-    // never be able to drop.
-    // The thing is that the new system doesn't support different CPU queue
-    // limits, but the mesa_rx_conf_set() API allows for setting different
-    // limits to different CPU queues. In order to overcome this, it has been
-    // decided to use the maximum requested queue size for all queues and set
-    // the overall CPU port scheduling element to 0.
+    // Each CPU queue gets reserved extraction buffer space. No sharing at port or buffer level
     for (queue = 0; queue < vtss_state->packet.rx_queue_count; queue++) {
-        max_req = MAX(max_req, conf->queue[queue].size);
+        REG_WR(VTSS_QRES_RES_CFG(2048 /* egress */ + VTSS_CHIP_PORT_CPU * VTSS_PRIOS + queue), conf->queue[queue].size / FA_BUFFER_CELL_SZ);
     }
-
-    // Convert to cells
-    max_req /= FA_BUFFER_CELL_SZ;
-
-    // Don't exceed the field width (this field is located at offset 0, so it's
-    // fine to use the mask itself).
-    max_req = MIN(max_req, VTSS_M_XQS_QLIMIT_QUE_CONG_CFG_QLIMIT_QUE_CONG);
-
-    // Set per-queue congestion values to max_req for shared memory pool #1.
-    REG_WR(VTSS_XQS_QLIMIT_QUE_CONG_CFG(1), max_req);
-
-    // Set the overall port scheduling element congestion value to 0 for shared
-    // memory pool #1, so that it's only the queue limits that rule.
-    REG_WR(VTSS_XQS_QLIMIT_SE_CONG_CFG(1), 0);
-
-    // Switch the CPU ports to memory pool #1, and disallow egress sharing.
-    for (port = VTSS_CHIP_PORT_CPU_0; port <= VTSS_CHIP_PORT_CPU_1; port++) {
-        REG_WRM(VTSS_XQS_QLIMIT_PORT_CFG(port),
-                VTSS_F_XQS_QLIMIT_PORT_CFG_QLIMIT_SHR_VAL(1) |
-                VTSS_F_XQS_QLIMIT_PORT_CFG_QLIMIT_NO_ESHR(1),
-                VTSS_M_XQS_QLIMIT_PORT_CFG_QLIMIT_SHR_VAL |
-                VTSS_M_XQS_QLIMIT_PORT_CFG_QLIMIT_NO_ESHR);
-    }
-
-    // Enable EGRESS_DROP_MODE on both CPU ports. This code also sets
-    // EGR_NO_SHARING, but this is only needed if using the legacy QRES system.
-    for (port = VTSS_CHIP_PORT_CPU_0; port <= VTSS_CHIP_PORT_CPU_1; port++) {
-        REG_WRM(VTSS_QFWD_SWITCH_PORT_MODE(port),
-                VTSS_F_QFWD_SWITCH_PORT_MODE_EGR_NO_SHARING(1) |
-                VTSS_F_QFWD_SWITCH_PORT_MODE_EGRESS_DROP_MODE(1),
-                VTSS_M_QFWD_SWITCH_PORT_MODE_EGR_NO_SHARING |
-                VTSS_M_QFWD_SWITCH_PORT_MODE_EGRESS_DROP_MODE);
-    }
+    REG_WR(VTSS_QRES_RES_CFG(2048 /* egress */ + 560 /* per-port reservation */ + VTSS_CHIP_PORT_CPU), 0); // No extra shared space at port level
 
     // Setup Rx registrations that we only have per-switch API support for (not per-port)
     cap_cfg = VTSS_F_ANA_CL_CAPTURE_CFG_CPU_MLD_REDIR_ENA  (reg->mld_cpu_only)       |
@@ -622,7 +575,7 @@ static vtss_rc fa_rx_hdr_decode(const vtss_state_t          *const state,
         return VTSS_RC_ERROR;
     }
 
-    memset(info, 0, sizeof(*info));
+    VTSS_MEMSET(info, 0, sizeof(*info));
 
     info->hw_tstamp         = tstamp<<8;
     info->length            = meta->length;
@@ -689,9 +642,10 @@ static vtss_rc fa_rx_frame(vtss_state_t          *vtss_state,
         VTSS_RC(fa_rx_frame_get_internal(vtss_state, grp, ifh, data, buflen, &length));
 
         /* IFH is done separately because of alignment needs */
-        memcpy(xtr_hdr, ifh, sizeof(ifh));
-        memset(&meta, 0, sizeof(meta));
+        VTSS_MEMCPY(xtr_hdr, ifh, sizeof(ifh));
+        VTSS_MEMSET(&meta, 0, sizeof(meta));
         meta.length = (length - 4);
+        meta.etype = (data[12] << 8) | data[13];
         rc = fa_rx_hdr_decode(vtss_state, &meta, xtr_hdr, rx_info);
     }
     return rc;
@@ -700,7 +654,7 @@ static vtss_rc fa_rx_frame(vtss_state_t          *vtss_state,
 /*****************************************************************************/
 // fa_ptp_action_to_ifh()
 /*****************************************************************************/
-static vtss_rc fa_ptp_action_to_ifh(vtss_packet_ptp_action_t ptp_action, uint8_t ptp_domain, BOOL afi, u32 *result)  /* TBD_henrikb */
+static vtss_rc fa_ptp_action_to_ifh(vtss_packet_ptp_action_t ptp_action, u8 ptp_domain, BOOL afi, u32 *result)  /* TBD_henrikb */
 {
     vtss_rc rc = VTSS_RC_OK;
 
@@ -777,7 +731,7 @@ static vtss_rc fa_tx_hdr_encode(vtss_state_t                *const state,
     }
 
     *bin_hdr_len = FA_IFH_BYTES;
-    memset(bin_hdr, 0, FA_IFH_BYTES); /* IFH is all zero. From now on bits can be set by OR. No bit clear should be required */
+    VTSS_MEMSET(bin_hdr, 0, FA_IFH_BYTES); /* IFH is all zero. From now on bits can be set by OR. No bit clear should be required */
 
     IFH_ENCODE_BITFIELD(bin_hdr, 1, VSTAX+79, 1); // VSTAX.RSV = 1. MSBit must be 1
     IFH_ENCODE_BITFIELD(bin_hdr, 1, VSTAX+55, 1); // VSTAX.INGR_DROP_MODE = Enable. Don't make head-of-line blocking

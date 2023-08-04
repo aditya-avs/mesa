@@ -9,32 +9,6 @@
 #include <microchip/ethernet/switch/api/misc.h> // For mesa_sgpio_group_t
 #include <microchip/ethernet/hdr_start.h>       // ALL INCLUDE ABOVE THIS LINE
 
-/******************************************************************************/
-/* Port status                                                                */
-/******************************************************************************/
-
-// Port status parameter struct
-typedef struct
-{
-    mesa_event_t      link_down;     // Link down event occurred since last call
-    mesa_bool_t       link;          // Link is up. Remaining fields only valid if TRUE
-    mesa_port_speed_t speed;         // Speed
-    mesa_bool_t       fdx;           // Full duplex
-    mesa_bool_t       remote_fault;  // Remote fault signalled
-    mesa_bool_t       aneg_complete; // Autoneg completed (for clause_37 and Cisco aneg)
-
-    // TRUE: PHY able to transmit from media independent interface regardless of whether the PHY has
-    // determined that a valid link has been established.FALSE: PHY able to transmit from media
-    // independent interface only when the PHY has determined that a valid link has been established.
-    // Note This bit is only applicable to 100BASE-FX and 1000BASE-X fiber media modes.*/
-    mesa_bool_t       unidirectional_ability;
-
-    mesa_aneg_t       aneg;          // Auto negotiation result
-    mesa_bool_t       mdi_cross;     // Indication of if Auto-MDIX crossover is performed
-    mesa_bool_t       fiber;         // Indication of if the link is a fiber link
-    mesa_bool_t       copper;        // Indication of if the link is a copper link
-} mesa_port_status_t;
-
 // The internal bandwidth allocated for the port
 typedef enum
 {
@@ -47,7 +21,7 @@ typedef enum
     MESA_BW_UNDEFINED,   // Undefined
 } mesa_internal_bw_t;
 
-// Enable/disable SD-to-SGPIO mapping */
+// Enable/disable SD-to-SGPIO mapping
 typedef enum
 {
     MESA_SD_SGPIO_MAP_IGNORE,   /**< No mapping as default */
@@ -64,7 +38,8 @@ typedef struct
     uint32_t               bit;    // SGPIO bit (0-3)
 } mesa_port_sgpio_map_t;
 
-#define CHIP_PORT_UNUSED -1 // Signifies an unused chip port
+// Signifies an unused chip port
+#define CHIP_PORT_UNUSED -1
 
 // Port map structure
 typedef struct
@@ -459,6 +434,24 @@ mesa_rc mesa_port_ifh_conf_get(const mesa_inst_t     inst,
                                mesa_port_ifh_t      *const conf)
     CAP(PORT_IFH);
 
+// Read value from MIIM register.
+// port_no [IN]  Port number.
+// addr    [IN]  PHY register address.
+// value   [OUT] PHY register value.
+mesa_rc mesa_port_miim_read(const mesa_inst_t    inst,
+                            const mesa_port_no_t port_no,
+                            const uint8_t        addr,
+                            uint16_t             *const value);
+
+// Write value to MIIM register.
+// port_no [IN]  Port number.
+// addr    [IN]  PHY register address.
+// value   [IN]  PHY register value.
+mesa_rc mesa_port_miim_write(const mesa_inst_t    inst,
+                             const mesa_port_no_t port_no,
+                             const uint8_t        addr,
+                             const uint16_t       value);
+
 // Direct MIIM read (bypassing port map)
 // chip_no         [IN]  Chip number (if multi-chip instance).
 // miim_controller [IN]  MIIM Controller Instance
@@ -588,6 +581,9 @@ typedef struct {
     uint16_t          lp_bp0        CAP(PORT_KR_IRQ); // (debug) LP Base page 0-15
     uint16_t          lp_bp1        CAP(PORT_KR_IRQ); // (debug) LP Base page 16-31
     uint16_t          lp_bp2        CAP(PORT_KR_IRQ); // (debug) LP Base page 32-47
+    uint16_t          lp_np0        CAP(PORT_KR_IRQ); // (debug) LP Next page 0-15
+    uint16_t          lp_np1        CAP(PORT_KR_IRQ); // (debug) LP Next page 16-31
+    uint16_t          lp_np2        CAP(PORT_KR_IRQ); // (debug) LP Next page 32-47
 } mesa_port_kr_status_aneg_t        CAP(PORT_KR);
 
 // KR Training status
@@ -627,12 +623,14 @@ typedef struct {
     mesa_bool_t r_fec_req;                    // Request R-FEC
     mesa_bool_t rs_fec_req  CAP(PORT_KR_IRQ); // Request RS-FEC (25G)
     mesa_bool_t next_page   CAP(PORT_KR_IRQ); // Use next page when advertise
+    mesa_bool_t no_pd;                        // Do not enable parallel detect
 } mesa_port_kr_aneg_t       CAP(PORT_KR);
 
 // KR Training config
 typedef struct {
     mesa_bool_t enable;                        // Enable KR training, BER method used
     mesa_bool_t no_remote   CAP(PORT_KR_IRQ);  // Do not train remote, only local
+    mesa_bool_t no_eq_apply CAP(PORT_KR_IRQ);  // Do not apply EQ settings to HW (debug only)
     mesa_bool_t use_ber_cnt CAP(PORT_KR_IRQ);  // Use BER count instead of eye height
     mesa_bool_t test_mode   CAP(PORT_KR_IRQ);  // Debug only
     uint32_t test_repeat    CAP(PORT_KR_IRQ);  // Debug only
@@ -698,6 +696,7 @@ mesa_rc mesa_port_kr_status_get(const mesa_inst_t inst,
 #define MESA_KR_GEN0_DONE       (1 << 5)
 #define MESA_KR_GEN1_DONE       (1 << 4)
 #define MESA_KR_ANEG_RATE_25G    7
+#define MESA_KR_ANEG_RATE_25G_S  8
 #define MESA_KR_ANEG_RATE_10G    9
 #define MESA_KR_ANEG_RATE_5G     11
 #define MESA_KR_ANEG_RATE_2G5    12
@@ -738,7 +737,7 @@ typedef struct {
     uint32_t vga;
     uint32_t edc;
     uint32_t eqr;
-} mesa_port_ctle_t CAP(PORT_KR_IRQ);
+} mesa_port_ctle_t;
 
 /** \brief KR state machine structures */
 typedef struct {

@@ -1,63 +1,86 @@
-# Copyright (c) 2004-2020 Microchip Technology Inc. and its subsidiaries.
+# Copyright (c) 2004-2021 Microchip Technology Inc. and its subsidiaries.
 # SPDX-License-Identifier: MIT
 
 project(MEPA)
 
 cmake_minimum_required(VERSION 2.8.12)
+include(.cmake/mepa-macros.cmake)
 
+include_directories(common/include)
+
+# Offer an options for CI to get good compliation coverage
 option(BUILD_MEPA_ALL "Build all MEPA libraries" OFF)
+option(MEPA_OPSYS_LMSTAX "Build MEPA with OS abstraction for LMSTAX" OFF)
+
 mark_as_advanced(BUILD_MEPA_ALL)
+mark_as_advanced(MEPA_OPSYS_LMSTAX)
 
-include_directories(../me/include)
-include_directories(../mesa/include)
-include_directories(../meba/include)
-include_directories(include)
+# The various drivers append to this, if user select the corresponding options
+set(mepa_drvs)
+set(mepa_defs)
 
-add_library(mepa_vtss SHARED src/vtss.c)
-add_library(mepa_vtss_static STATIC src/vtss.c)
-set_target_properties(mepa_vtss_static PROPERTIES OUTPUT_NAME mepa_vtss)
-
-add_library(mepa_lan8814 SHARED src/microchip/lan8814.c)
-add_library(mepa_lan8814_static STATIC src/microchip/lan8814.c)
-set_target_properties(mepa_lan8814_static PROPERTIES OUTPUT_NAME mepa_lan8814)
-
-include_directories(".")
-include_directories("src/aqr/AQR_API_2.6.1/include")
-include_directories("src/aqr/AQR_API_2.6.1/include/registerMap")
-include_directories("src/aqr/AQR_API_2.6.1/include/registerMap/APPIA")
-include_directories("src/aqr/AQR_API_2.6.1/include/registerMap/EUR")
-include_directories("src/aqr/AQR_API_2.6.1/include/registerMap/HHD")
-include_directories("src/aqr/aqr_phy_fw")
-
-set(src_aqr src/aqr/phy_driver.c
-	    src/aqr/vtss_platform/AQ_PhyInterface.c
-	    src/aqr/vtss_platform/AQ_PlatformRoutines.c
-	    src/aqr/AQR_API_2.6.1/src/AQ_API.c
-	    src/aqr/AQR_API_2.6.1/src/AQ_API_flash.c)
+# Pull in all drivers (alfabetic sorted)
+add_subdirectory(aqr)
+add_subdirectory(intel)
+add_subdirectory(ksz9031)
+add_subdirectory(microchip)
+add_subdirectory(vtss)
 
 
-add_library(mepa_aqr SHARED ${src_aqr})
-add_library(mepa_aqr_static STATIC ${src_aqr})
-set_target_properties(mepa_aqr_static PROPERTIES OUTPUT_NAME mepa_aqr)
-
-include_directories("src/intel/GPY_API_v251/src/os/linux")
-include_directories("src/intel/GPY_API_v251/src/inc")
-
-set(src_intel src/intel/phy_driver.c
-              src/intel/GPY_API_v251/src/api/phy/gpy211_chip.c
-              src/intel/GPY_API_v251/src/api/phy/gpy211_phy.c)
-
-set(CMAKE_C_FLAGS "-DP31G_B0=1 -DSAFE_C_LIB=0")
-add_library(mepa_intel SHARED ${src_intel})
-add_library(mepa_intel_static STATIC ${src_intel})
-set_target_properties(mepa_intel_static PROPERTIES OUTPUT_NAME mepa_intel)
+###############################################################################
+## This is the "default" MEPA packet which can be customized using the menus ##
+###############################################################################
+MEPA_LIB(LIB_NAME mepa
+         DEFS     ${mepa_defs}
+         DRVS     ${mepa_drvs})
 
 
-include_directories("src/ksz9031")
+###############################################################################
+## Collection of pre-defined MEPA packets. These packets are used by MEBA    ##
+## and other higher layer of applications                                    ##
+###############################################################################
+MEPA_LIB(LIB_NAME mepa_caracal ADVANCED
+         DEFS     -DMEPA_HAS_VTSS
+         DRVS     mepa_drv_vtss)
 
-set(src_ksz9031 src/ksz9031/phy_driver.c )
+MEPA_LIB(LIB_NAME mepa_jr2 ADVANCED
+         DEFS     -DMEPA_HAS_VTSS       -DMEPA_HAS_AQR  -DMEPA_HAS_GPY2211
+         DRVS     mepa_drv_vtss_10g_ts  mepa_drv_aqr    mepa_drv_intel)
 
-set(CMAKE_C_FLAGS "-DP31G_B0=1 -DSAFE_C_LIB=0")
-add_library(mepa_ksz9031 SHARED ${src_ksz9031})
-add_library(mepa_ksz9031_static STATIC ${src_ksz9031})
-set_target_properties(mepa_ksz9031_static PROPERTIES OUTPUT_NAME mepa_ksz9031)
+MEPA_LIB(LIB_NAME mepa_jr2_bringup ADVANCED
+         DEFS     -DMEPA_HAS_VTSS
+         DRVS     mepa_drv_vtss_10g_ts)
+
+MEPA_LIB(LIB_NAME mepa_servalt ADVANCED
+         DEFS     -DMEPA_HAS_VTSS
+         DRVS     mepa_drv_vtss_10g_ts)
+
+MEPA_LIB(LIB_NAME mepa_ocelot ADVANCED
+         DEFS     -DMEPA_HAS_VTSS  -DMEPA_HAS_LAN8814
+         DRVS     mepa_drv_vtss_ts mepa_drv_lan8814)
+
+MEPA_LIB(LIB_NAME mepa_ocelot_pcb121 ADVANCED
+         DEFS     -DMEPA_HAS_VTSS
+         DRVS     mepa_drv_vtss_ts)
+
+MEPA_LIB(LIB_NAME mepa_sparx5 ADVANCED
+         DEFS     -DMEPA_HAS_VTSS       -DMEPA_HAS_AQR  -DMEPA_HAS_GPY2211  -DMEPA_HAS_LAN8814
+         DRVS     mepa_drv_vtss_10g_ts  mepa_drv_aqr    mepa_drv_intel      mepa_drv_lan8814)
+
+
+MEPA_LIB(LIB_NAME mepa_sparx5_macsec ADVANCED
+         DEFS     -DMEPA_HAS_VTSS       -DMEPA_HAS_AQR  -DMEPA_HAS_GPY2211  -DMEPA_HAS_LAN8814
+         DRVS     mepa_drv_vtss_10g_macsec_ts  mepa_drv_aqr    mepa_drv_intel      mepa_drv_lan8814)
+
+
+MEPA_LIB(LIB_NAME mepa_sparx5_bringup ADVANCED
+         DEFS     -DMEPA_HAS_VTSS
+         DRVS     mepa_drv_vtss_10g_ts)
+
+MEPA_LIB(LIB_NAME mepa_lan966x ADVANCED
+         DEFS     -DMEPA_HAS_VTSS  -DMEPA_HAS_KSZ9031  -D MEPA_HAS_LAN8814 -DMEPA_HAS_LAN884x
+         DRVS     mepa_drv_vtss    mepa_drv_ksz9031    mepa_drv_lan8814   mepa_drv_lan884x)
+
+MEPA_LIB(LIB_NAME mepa_lmstax_lan966x ADVANCED
+         DEFS     -DMEPA_HAS_LAN8814
+         DRVS     mepa_drv_lan8814)

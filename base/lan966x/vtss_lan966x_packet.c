@@ -5,7 +5,7 @@
 #define VTSS_TRACE_GROUP VTSS_TRACE_GROUP_PACKET
 #include "vtss_lan966x_cil.h"
 
-#if defined(VTSS_ARCH_LAN966X)
+#if defined(VTSS_ARCH_LAN966X) && defined(VTSS_FEATURE_PACKET)
 
 /* ================================================================= *
  *  NPI
@@ -65,10 +65,41 @@ static vtss_rc lan966x_packet_phy_cnt_to_ts_cnt(vtss_state_t *vtss_state, u32 ph
 }
 
 static vtss_rc lan966x_packet_ns_to_ts_cnt(vtss_state_t  *vtss_state,
-                                           u32            ns,
+                                           u32            frame_ns,
                                            u64            *ts_cnt)
 {
+#if defined(VTSS_FEATURE_TIMESTAMP)
+    vtss_timestamp_t ts;
+    u64              tc;
+    u32              tod_ns, diff;
+
+    /* The frame_ns parameter is a one mia (one second) wrapping nano second counter, extracted from the received packet (inserted by the PHY) */
+
+    while (frame_ns >= VTSS_ONE_MIA) {
+        /* skip sec part */
+        frame_ns -= VTSS_ONE_MIA;
+        VTSS_I("decrement frame_ns value (%d)", frame_ns);
+    }
+
+    /* The time of day is sampled 2 or more times pr sec, assumed frame stamping belong to domain 0 */
+    _vtss_ts_domain_timeofday_get(NULL, 0, &ts, &tc);
+    if (ts.nanoseconds < frame_ns) {
+        tod_ns = ts.nanoseconds + VTSS_ONE_MIA; /* TOD nanoseconds is smaller than the frame_ns from the frame. TOD nanoseconds has wrapped */
+        tc += ((u64)VTSS_ONE_MIA) << 16;
+    } else {
+        tod_ns = ts.nanoseconds;
+    }
+
+    diff = tod_ns - frame_ns;               /* Calculate the difference between FRAME and TOD 30 bit wrapping nano second counter */
+    *ts_cnt = tc - (u64)((u64)diff << 16);  /* Difference in 16 bit nano second fragments */
+    VTSS_I("frame_ns %u  tod_ns %u  ts_cnt %" PRIu64 "  diff %u  ts.sec %u  ts.ns %u  tc %" PRIu64 "", frame_ns, tod_ns, *ts_cnt, diff, ts.seconds, ts.nanoseconds, tc);
+#endif
     return VTSS_RC_OK;
+}
+
+static u32 lan966x_packet_unpack32(const u8 *buf)
+{
+    return (buf[0]<<24) + (buf[1]<<16) + (buf[2]<<8) + buf[3];
 }
 
 static vtss_rc lan966x_ptp_get_timestamp(vtss_state_t                    *vtss_state,
@@ -80,8 +111,13 @@ static vtss_rc lan966x_ptp_get_timestamp(vtss_state_t                    *vtss_s
                                          BOOL                            *timestamp_ok)
 {
     if (ts_props.ts_feature_is_PTS) {
-        VTSS_E("PHY timestamp feature not supported");
-        return VTSS_RC_ERROR;
+        if (ts_props.phy_ts_mode == VTSS_PACKET_INTERNAL_TC_MODE_30BIT) {
+            // rxTime is similar to tc returned from lan966x_ts_io_pin_timeofday_get
+            *rxTime = ((u64)lan966x_packet_unpack32(frm)) << 16;
+            *timestamp_ok = rx_info->hw_tstamp_decoded;
+        } else {
+            VTSS_I("PHY timestamp mode %d not supported", ts_props.phy_ts_mode);
+        }
     } else {
         /* The hw_tstamp is a tc in 16 bit nano second fragments (46 (30 bits nsec + 16 bits sub nsec) wrapping) */
         *rxTime = rx_info->hw_tstamp;
@@ -172,7 +208,7 @@ static vtss_rc lan966x_rx_hdr_decode(const vtss_state_t          *const state,
 {
     u32 port, tci;
 
-    memset(info, 0, sizeof(*info));
+    VTSS_MEMSET(info, 0, sizeof(*info));
     info->length = meta->length;
 
     // Ingress port
@@ -196,6 +232,7 @@ static vtss_rc lan966x_rx_hdr_decode(const vtss_state_t          *const state,
     info->acl_hit = IFH_GET(ifh, ACL_HIT);
 
     // Timestamp
+    // hw_tstamp 48bits NS + 16 Sub-NS.    TIMESTAMP: 30bits NS + 2 Sub-NS
     info->hw_tstamp = (u64)(IFH_GET(ifh, TIMESTAMP)) << 14;
     info->hw_tstamp_decoded = TRUE;
 
@@ -215,20 +252,33 @@ static vtss_rc lan966x_rx_hdr_decode(const vtss_state_t          *const state,
     return VTSS_RC_OK;
 }
 
-static u32 pdu_type_calc(vtss_packet_oam_type_t oam_type)
+static u32 pdu_type_calc(const vtss_packet_tx_info_t *const info)
 {
-    switch (oam_type) {
-    case VTSS_PACKET_OAM_TYPE_CCM:      return 1;
-    case VTSS_PACKET_OAM_TYPE_MRP_TST:  return 2;
-    case VTSS_PACKET_OAM_TYPE_MRP_ITST: return 3;
-    case VTSS_PACKET_OAM_TYPE_DLR_BCN:  return 4;
-    case VTSS_PACKET_OAM_TYPE_DLR_ADV:  return 5;
-    default:
-        VTSS_E("Invalid oam_type (%u)", oam_type);
+    switch (info->oam_type) {
+    case VTSS_PACKET_OAM_TYPE_NONE:       break;  // Do nothing
+    case VTSS_PACKET_OAM_TYPE_CCM:        return 1;
+    case VTSS_PACKET_OAM_TYPE_MRP_TST:    return 2;
+    case VTSS_PACKET_OAM_TYPE_MRP_ITST:   return 3;
+    case VTSS_PACKET_OAM_TYPE_DLR_BCN:    return 4;
+    case VTSS_PACKET_OAM_TYPE_DLR_ADV:    return 5;
+    case VTSS_PACKET_OAM_TYPE_MPLS_TP_1:  return 0;  // Not supported
+    case VTSS_PACKET_OAM_TYPE_MPLS_TP_2:  return 0;  // Not supported
+    default:                              return 9;  // Y1731_NON_CCM
     }
+
+    if (info->ptp_action != VTSS_PACKET_PTP_ACTION_NONE) {
+        if (info->inj_encap.type == VTSS_PACKET_ENCAP_TYPE_IP4) {
+            return 7;
+        }
+        if (info->inj_encap.type == VTSS_PACKET_ENCAP_TYPE_IP6) {
+            return 8;
+        }
+    }
+
     return 0;
 }
 
+#if defined(VTSS_FEATURE_VOP)
 static u32 seq_num_oam_calc(vtss_packet_oam_type_t oam_type, u32 chip_port)
 {
     switch (oam_type) {
@@ -242,6 +292,7 @@ static u32 seq_num_oam_calc(vtss_packet_oam_type_t oam_type, u32 chip_port)
     }
     return 0;
 }
+#endif
 
 static vtss_rc lan966x_tx_hdr_encode(vtss_state_t          *const state,
                                      const vtss_packet_tx_info_t *const info,
@@ -249,8 +300,11 @@ static vtss_rc lan966x_tx_hdr_encode(vtss_state_t          *const state,
                                      u32                   *const ifh_len)
 {
     vtss_port_no_t port_no;
-    u32            port, dst_mask, mask = 0, pop_cnt = 0, rew_cmd = 0, tci, cos, seq_num_chip_port = 0, etype_ofs;
-    const vtss_vlan_tag_t *tag = &info->tag;
+    u32            port, dst_mask, mask = 0, pop_cnt = 0, rew_cmd = 0, tci, cos, etype_ofs;
+#if defined(VTSS_FEATURE_VOP)
+    u32            seq_num_chip_port = 0;
+#endif
+        const vtss_vlan_tag_t *tag = &info->tag;
 
     if (ifh == NULL) {
         *ifh_len = LAN966X_IFH_SIZE;
@@ -259,8 +313,13 @@ static vtss_rc lan966x_tx_hdr_encode(vtss_state_t          *const state,
         return VTSS_RC_ERROR;
     }
 
+    if ((info->oam_type != VTSS_PACKET_OAM_TYPE_NONE) && (info->ptp_action != VTSS_PACKET_PTP_ACTION_NONE)) {
+        VTSS_E("Invalid PDU type indication oam_type %u  ptp_action %u", info->oam_type, info->ptp_action);
+        return VTSS_RC_ERROR;
+    }
+
     *ifh_len = LAN966X_IFH_SIZE;
-    memset(ifh, 0, LAN966X_IFH_SIZE);
+    VTSS_MEMSET(ifh, 0, LAN966X_IFH_SIZE);
 
     if (info->switch_frm) {
         port_no = info->masquerade_port;
@@ -289,7 +348,9 @@ static vtss_rc lan966x_tx_hdr_encode(vtss_state_t          *const state,
         }
         for (port_no = 0; port_no < state->port_count; port_no++) {
             if (dst_mask & (1 << port_no)) {
+#if defined(VTSS_FEATURE_VOP)
                 seq_num_chip_port = VTSS_CHIP_PORT_FROM_STATE(state, port_no);
+#endif
                 mask |= VTSS_BIT(VTSS_CHIP_PORT_FROM_STATE(state, port_no));
             }
         }
@@ -322,21 +383,27 @@ static vtss_rc lan966x_tx_hdr_encode(vtss_state_t          *const state,
         if (rew_cmd) {
             IFH_SET(ifh, REW_CMD, (info->ptp_domain << 6) | rew_cmd);
         }
+
+        IFH_SET(ifh, PDU_TYPE, pdu_type_calc(info));
+
+        etype_ofs = 0;
+        if (info->inj_encap.type == VTSS_PACKET_ENCAP_TYPE_NONE) {
+            if (info->pdu_offset > 14) {
+                etype_ofs = (info->pdu_offset - 14) / 4;
+            }
+        } else {
+            etype_ofs = MIN(3, info->inj_encap.tag_count);
+        }
+        IFH_SET(ifh, ETYPE_OFS, etype_ofs);
+
+#if defined(VTSS_FEATURE_VOP)
         if (info->oam_type != VTSS_PACKET_OAM_TYPE_NONE) {
             IFH_SET(ifh, REW_OAM, 1);
-            IFH_SET(ifh, PDU_TYPE, pdu_type_calc(info->oam_type));
             IFH_SET(ifh, SEQ_NUM, seq_num_oam_calc(info->oam_type, seq_num_chip_port)); /* Point to the sequence number update configuration */
 
-            if (info->oam_type == VTSS_PACKET_OAM_TYPE_MRP_TST ||
+            if (info->oam_type == VTSS_PACKET_OAM_TYPE_CCM     ||
+                info->oam_type == VTSS_PACKET_OAM_TYPE_MRP_TST ||
                 info->oam_type == VTSS_PACKET_OAM_TYPE_MRP_ITST) {
-                if (info->pdu_offset <= 14) {
-                    etype_ofs = 0;
-                } else {
-                    etype_ofs = (info->pdu_offset - 14) / 4;
-                }
-
-                IFH_SET(ifh, ETYPE_OFS, etype_ofs);
-
                 // Don't set "do not rewrite", because then some fields of the
                 // MRP_[In]Test PDUs won't get updated in that case.
                 pop_cnt = 0;
@@ -350,11 +417,14 @@ static vtss_rc lan966x_tx_hdr_encode(vtss_state_t          *const state,
                 IFH_SET(ifh, SEQ_NUM, ((VTSS_VOE_CNT*2) + (VTSS_VOE_CNT*2) + VTSS_VOE_CNT) + info->sequence_idx);
             }
         }
+#endif
 
+#if defined(VTSS_AFI_V2)
         // AFI
         if (info->afi_id != VTSS_AFI_ID_NONE) {
             IFH_SET(ifh, AFI, 1);
         }
+#endif
 
         // DP and priority
         IFH_SET(ifh, DP, info->dp);
@@ -591,8 +661,8 @@ static vtss_rc lan966x_rx_frame(struct vtss_state_s  *vtss_state,
         VTSS_RC(lan966x_rx_frame_get_internal(vtss_state, grp, ifh, data, buflen, &length));
 
         /* IFH is done separately because of alignment needs */
-        memcpy(xtr_hdr, ifh, sizeof(ifh));
-        memset(&meta, 0, sizeof(meta));
+        VTSS_MEMCPY(xtr_hdr, ifh, sizeof(ifh));
+        VTSS_MEMSET(&meta, 0, sizeof(meta));
         meta.length = (length - 4);
         rc = lan966x_rx_hdr_decode(vtss_state, &meta, xtr_hdr, rx_info);
     }
@@ -712,7 +782,8 @@ static vtss_rc lan966x_rx_conf_set(vtss_state_t *vtss_state)
                ((pc->mld_reg == VTSS_PACKET_REG_NORMAL && reg->mld_cpu_only) ||
                 pc->mld_reg == VTSS_PACKET_REG_CPU_ONLY ? ANA_CPU_FWD_CFG_MLD_REDIR_ENA_M : 0));
         for (i = 0, bpdu = 0, garp = 0; i < 16; i++) {
-            bpdu |= lan966x_cpu_fwd_mask_get(pc->bpdu_reg[i], reg->bpdu_cpu_only, i);
+            // Always discard Pause frames 01:80:C2:00:00:01
+            bpdu |= lan966x_cpu_fwd_mask_get(i == 1 ? VTSS_PACKET_REG_DISCARD : pc->bpdu_reg[i], reg->bpdu_cpu_only, i);
             garp |= lan966x_cpu_fwd_mask_get(pc->garp_reg[i], reg->garp_cpu_only[i], i);
         }
         REG_WR(ANA_CPU_FWD_BPDU_CFG(port), bpdu);
@@ -741,6 +812,8 @@ static vtss_rc lan966x_rx_conf_set(vtss_state_t *vtss_state)
     return lan966x_npi_mask_set(vtss_state);
 }
 
+#if VTSS_OPT_DEBUG_PRINT
+
 /* - Debug print --------------------------------------------------- */
 
 static vtss_rc lan966x_debug_pkt(vtss_state_t *vtss_state,
@@ -752,7 +825,7 @@ static vtss_rc lan966x_debug_pkt(vtss_state_t *vtss_state,
 
     // Analyzer CPU forwarding registers
     for (port = 0; port <= VTSS_CHIP_PORTS; port++) {
-        sprintf(buf, "Port %u", port);
+        VTSS_SPRINTF(buf, "Port %u", port);
         vtss_lan966x_debug_reg_header(pr, buf);
         vtss_lan966x_debug_reg_inst(vtss_state, pr, REG_ADDR(ANA_CPU_FWD_CFG(port)), port, "FWD_CFG");
         vtss_lan966x_debug_reg_inst(vtss_state, pr, REG_ADDR(ANA_CPU_FWD_BPDU_CFG(port)), port, "BPDU_CFG");
@@ -784,6 +857,7 @@ vtss_rc vtss_lan966x_packet_debug_print(vtss_state_t *vtss_state,
 {
     return vtss_debug_print_group(VTSS_DEBUG_GROUP_PACKET, lan966x_debug_pkt, vtss_state, pr, info);
 }
+#endif // VTSS_OPT_DEBUG_PRINT
 
 /* - Initialization ------------------------------------------------ */
 

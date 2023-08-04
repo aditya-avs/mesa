@@ -9,6 +9,7 @@ typedef struct {
     uint32_t           sgpio_bit;
     mesa_port_status_t status;
     mesa_bool_t        activity;
+    mesa_bool_t        ts_phy;
 } fa_port_info_t;
 
 // The PCB type
@@ -47,10 +48,15 @@ typedef struct meba_board_state {
     const mesa_fan_conf_t *fan_spec;
     mesa_bool_t           beaglebone;
     mesa_bool_t           ls1046;
+    mesa_bool_t           gpy241_present;
+    mesa_bool_t           viper_present;
+    mesa_bool_t           malibu_present;
+    mesa_bool_t           gpy241_usxgmii_mode;
+    uint16_t              gpy241_leds[4];
     uint32_t              port_cnt;
     int                   cpu_port_cnt;
-    fa_port_info_t       *port;
+    fa_port_info_t        *port;
     const board_func_t    *func;
-     mepa_device_t        *phy_devices[MAX_PORTS];
+    mepa_device_t        *phy_devices[MAX_PORTS];
 } meba_board_state_t;
 

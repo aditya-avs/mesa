@@ -242,7 +242,7 @@ static vtss_rc fa_mac_table_result(vtss_state_t *vtss_state, vtss_mac_table_entr
     VTSS_D("mach: 0x%08x, macl: 0x%08x, cfg2: 0x%08x", cfg0, cfg1, cfg2);
 
     /* Extract fields from Jaguar registers */
-    memset(entry, 0, sizeof(*entry));
+    VTSS_MEMSET(entry, 0, sizeof(*entry));
     entry->aged        = VTSS_BOOL(VTSS_X_LRN_MAC_ACCESS_CFG_2_MAC_ENTRY_AGE_FLAG(cfg2));
     entry->copy_to_cpu = 0;
     entry->copy_to_cpu_smac = VTSS_BOOL(cfg2 & VTSS_M_LRN_MAC_ACCESS_CFG_2_MAC_ENTRY_CPU_COPY);
@@ -298,7 +298,7 @@ static vtss_rc fa_mac_table_get_next(vtss_state_t *vtss_state, vtss_mac_table_en
     vtss_pgid_entry_t *pgid_entry = &vtss_state->l2.pgid_table[VTSS_PGID_NONE];
 
     /* Clear PGID entry for IPMC/GLAG entries */
-    memset(pgid_entry, 0, sizeof(*pgid_entry));
+    VTSS_MEMSET(pgid_entry, 0, sizeof(*pgid_entry));
 
     vtss_mach_macl_get(&entry->vid_mac, &cfg0, &cfg1);
     VTSS_D("address 0x%08x%08x", cfg0, cfg1);
@@ -363,7 +363,7 @@ static vtss_rc fa_mac_table_age_cmd(vtss_state_t *vtss_state,
                                     BOOL             age)
 {
     u32        port, addr = 0, addr_type = MAC_ENTRY_ADDR_TYPE_UPSID_PN;
-    vtss_vid_t fid = vtss_state->l2.vlan_table[vid].conf.fid;
+    vtss_vid_t fid = vtss_state->l2.vlan_table[vid].fid;
 
     if (pgid_age) {
         if (pgid < vtss_state->port_count) {
@@ -413,7 +413,7 @@ static vtss_rc fa_mac_table_status_get(vtss_state_t *vtss_state, vtss_mac_table_
 {
     u32 value;
 
-    memset(status, 0, sizeof(*status));
+    VTSS_MEMSET(status, 0, sizeof(*status));
 
     /* Detect port move events */
     REG_RD(VTSS_ANA_L2_STICKY, &value);
@@ -513,18 +513,18 @@ static vtss_rc fa_vlan_conf_set(vtss_state_t *vtss_state)
 
 vtss_rc vtss_fa_vlan_update(vtss_state_t *vtss_state, vtss_vid_t vid)
 {
-    vtss_vlan_entry_t    *vlan_entry = &vtss_state->l2.vlan_table[vid];
-    vtss_vlan_vid_conf_t *conf = &vlan_entry->conf;
+    vtss_vlan_entry_t *e = &vtss_state->l2.vlan_table[vid];
 
     REG_WR(VTSS_ANA_L3_VLAN_CFG(vid),
-           VTSS_F_ANA_L3_VLAN_CFG_VLAN_MSTP_PTR(vlan_entry->msti) |
-           VTSS_F_ANA_L3_VLAN_CFG_VLAN_FID(conf->fid == 0 ? vid : conf->fid) |
-           VTSS_F_ANA_L3_VLAN_CFG_VLAN_FLOOD_DIS(conf->flooding ? 0 : 1) |
-           VTSS_F_ANA_L3_VLAN_CFG_VLAN_LRN_DIS(conf->learning ? 0 : 1) |
-           VTSS_F_ANA_L3_VLAN_CFG_VLAN_RLEG_ENA(vlan_entry->rl_enable) |
-           VTSS_F_ANA_L3_VLAN_CFG_VLAN_PRIVATE_ENA(vlan_entry->isolated) |
-           VTSS_F_ANA_L3_VLAN_CFG_VLAN_MIRROR_ENA(conf->mirror));
-    REG_WR(VTSS_ANA_L3_VMID_CFG(vid), VTSS_F_ANA_L3_VMID_CFG_VMID(vlan_entry->rl_id));
+           VTSS_F_ANA_L3_VLAN_CFG_VLAN_MSTP_PTR(e->msti) |
+           VTSS_F_ANA_L3_VLAN_CFG_VLAN_FID(e->fid == 0 ? vid : e->fid) |
+           VTSS_F_ANA_L3_VLAN_CFG_VLAN_IGR_FILTER_ENA(e->flags & VLAN_FLAGS_FILTER ? 1 : 0) |
+           VTSS_F_ANA_L3_VLAN_CFG_VLAN_FLOOD_DIS(e->flags & VLAN_FLAGS_FLOOD ? 0 : 1) |
+           VTSS_F_ANA_L3_VLAN_CFG_VLAN_LRN_DIS(e->flags & VLAN_FLAGS_LEARN ? 0 : 1) |
+           VTSS_F_ANA_L3_VLAN_CFG_VLAN_RLEG_ENA(e->rl_enable) |
+           VTSS_F_ANA_L3_VLAN_CFG_VLAN_PRIVATE_ENA(e->flags & VLAN_FLAGS_ISOLATED ? 1 : 0) |
+           VTSS_F_ANA_L3_VLAN_CFG_VLAN_MIRROR_ENA(e->flags & VLAN_FLAGS_MIRROR ? 1 : 0));
+    REG_WR(VTSS_ANA_L3_VMID_CFG(vid), VTSS_F_ANA_L3_VMID_CFG_VMID(e->rl_id));
 
     return VTSS_RC_OK;
 }
@@ -639,7 +639,7 @@ static vtss_rc fa_vlan_port_conf_update(vtss_state_t *vtss_state,
 
     /* Rewriter VLAN tag configuration */
     REG_WRM(VTSS_REW_TAG_CTRL(port),
-            VTSS_F_REW_TAG_CTRL_TAG_CFG(uvid == VTSS_VID_ALL ? 0 : uvid == VTSS_VID_NULL ? 3 : 1) |
+            VTSS_F_REW_TAG_CTRL_TAG_CFG(uvid == VTSS_VID_ALL ? 0 : uvid == VTSS_VID_NULL ? 2 : 1) |
             VTSS_F_REW_TAG_CTRL_TAG_TPID_CFG(tpid),
             VTSS_M_REW_TAG_CTRL_TAG_CFG |
             VTSS_M_REW_TAG_CTRL_TAG_TPID_CFG);
@@ -806,13 +806,13 @@ static vtss_rc fa_icnt_get(vtss_state_t *vtss_state, u16 idx, vtss_ingress_count
     vtss_stat_idx_t     sidx;
     vtss_evc_counters_t cnt;
 
-    memset(&cnt, 0, sizeof(cnt));
+    VTSS_MEMSET(&cnt, 0, sizeof(cnt));
     sidx.idx = idx;
     sidx.edx = 0;
     VTSS_RC(vtss_fa_sdx_counters_update(vtss_state, &sidx, &cnt, counters == NULL));
 
     if (counters != NULL) {
-        memset(counters, 0, sizeof(*counters));
+        VTSS_MEMSET(counters, 0, sizeof(*counters));
         counters->rx_green = cnt.rx_green;
         counters->rx_yellow = cnt.rx_yellow;
         counters->rx_red = cnt.rx_red;
@@ -839,7 +839,7 @@ static vtss_rc fa_ecnt_get(vtss_state_t *vtss_state, u16 idx, vtss_egress_counte
     vtss_stat_idx_t     sidx;
     vtss_evc_counters_t cnt;
 
-    memset(&cnt, 0, sizeof(cnt));
+    VTSS_MEMSET(&cnt, 0, sizeof(cnt));
     sidx.idx = 0;
     sidx.edx = idx;
     VTSS_RC(vtss_fa_sdx_counters_update(vtss_state, &sidx, &cnt, counters == NULL));
@@ -1028,7 +1028,7 @@ static vtss_rc fa_ip_mc_update(vtss_state_t *vtss_state,
     int                    i;
 
     if (cmd == VTSS_IPMC_CMD_CHECK) {
-        memset(&res, 0, sizeof(res));
+        VTSS_MEMSET(&res, 0, sizeof(res));
         if (ipmc->dst_add) {
             res.add_key[key_size] = 1;
         }
@@ -1456,7 +1456,7 @@ static void fa_debug_pmask_header(vtss_state_t *vtss_state, const vtss_debug_pri
 {
     char buf[64];
 
-    sprintf(buf, "%-33s", name == NULL ? "Port" : name);
+    VTSS_SPRINTF(buf, "%-33s", name == NULL ? "Port" : name);
     vtss_fa_debug_print_port_header(vtss_state, pr, buf);
 }
 
@@ -1479,15 +1479,16 @@ static vtss_rc fa_debug_vlan_entry(vtss_state_t *vtss_state,
     REG_RD(VTSS_ANA_L3_VLAN_CFG(vid), &value);
 
     if (header) {
-        fa_debug_pmask_header(vtss_state, pr, "VID   FID   MSTI  L/F/M/P");
+        fa_debug_pmask_header(vtss_state, pr, "VID   FID   MSTI  L/F/M/F/P");
     }
-    sprintf(buf, "%-6u%-6u%-6u%u/%u/%u/%u",
+    VTSS_SPRINTF(buf, "%-6u%-6u%-6u%u/%u/%u/%u/%u",
             vid,
             VTSS_X_ANA_L3_VLAN_CFG_VLAN_FID(value),
             VTSS_X_ANA_L3_VLAN_CFG_VLAN_MSTP_PTR(value),
             VTSS_X_ANA_L3_VLAN_CFG_VLAN_LRN_DIS(value) ? 0 : 1,
             VTSS_X_ANA_L3_VLAN_CFG_VLAN_FLOOD_DIS(value) ? 0 : 1,
             VTSS_X_ANA_L3_VLAN_CFG_VLAN_MIRROR_ENA(value),
+            VTSS_X_ANA_L3_VLAN_CFG_VLAN_IGR_FILTER_ENA(value),
             VTSS_X_ANA_L3_VLAN_CFG_VLAN_PRIVATE_ENA(value));
     fa_debug_pmask(pr, buf, &pmask);
 
@@ -1511,7 +1512,7 @@ static vtss_rc fa_debug_vlan(vtss_state_t *vtss_state,
             continue;
         }
         port = VTSS_CHIP_PORT(port_no);
-        sprintf(buf, "Port %u (%u)", port, port_no);
+        VTSS_SPRINTF(buf, "Port %u (%u)", port, port_no);
         vtss_fa_debug_reg_header(pr, buf);
         vtss_fa_debug_reg_inst(vtss_state, pr, VTSS_ANA_CL_VLAN_FILTER_CTRL(port, 0), port, "ANA:VLAN_FILTER_CTRL");
         vtss_fa_debug_reg_inst(vtss_state, pr, VTSS_ANA_CL_VLAN_CTRL(port),      port, "ANA:VLAN_CTRL");
@@ -1539,7 +1540,7 @@ static vtss_rc fa_debug_vlan(vtss_state_t *vtss_state,
 
     for (vid = VTSS_VID_NULL; vid < VTSS_VIDS; vid++) {
         vlan_entry = &vtss_state->l2.vlan_table[vid];
-        if (info->full || vlan_entry->enabled) {
+        if (info->full || (vlan_entry->flags & VLAN_FLAGS_ENABLED)) {
             VTSS_RC(fa_debug_vlan_entry(vtss_state, pr, vid, header));
             header = 0;
             /* Leave critical region briefly */
@@ -1564,7 +1565,7 @@ static vtss_rc fa_debug_src_table(vtss_state_t *vtss_state,
     fa_debug_pmask_header(vtss_state, pr, NULL);
     for (port = 0; port <= VTSS_CHIP_PORTS; port++) {
         REG_RDX_PMASK(VTSS_ANA_AC_SRC_SRC_CFG, port, &pmask);
-        sprintf(buf, "%u", port);
+        VTSS_SPRINTF(buf, "%u", port);
         fa_debug_pmask(pr, buf, &pmask);
     }
     pr("\n");
@@ -1584,7 +1585,7 @@ static vtss_rc fa_debug_aggr_table(vtss_state_t *vtss_state,
     fa_debug_pmask_header(vtss_state, pr, "AC");
     for (ac = 0; ac < 16; ac++) {
         REG_RDX_PMASK(VTSS_ANA_AC_AGGR_AGGR_CFG, ac, &pmask);
-        sprintf(buf, "%u", ac);
+        VTSS_SPRINTF(buf, "%u", ac);
         fa_debug_pmask(pr, buf, &pmask);
     }
     pr("\n");
@@ -1610,7 +1611,7 @@ static vtss_rc fa_debug_pgid_table(vtss_state_t *vtss_state,
         if (pgid > 80 && pmask.m[0] == 0 && pmask.m[1] == 0 && pmask.m[2] == 0 && !info->full) {
             continue;
         }
-        sprintf(buf, "%-5u%-11s%-5u%-5u",
+        VTSS_SPRINTF(buf, "%-5u%-11s%-5u%-5u",
                 pgid,
                 pgid == PGID_UC_FLOOD ? "UC" :
                 pgid == PGID_MC_FLOOD ? "MC" :
@@ -1660,7 +1661,7 @@ static vtss_rc fa_debug_mac_table(vtss_state_t *vtss_state,
     pr("\n");
 
     /* Dump MAC address table */
-    memset(&mac_entry, 0, sizeof(mac_entry));
+    VTSS_MEMSET(&mac_entry, 0, sizeof(mac_entry));
 
     while (fa_mac_table_get_next(vtss_state, &mac_entry, &pgid) == VTSS_RC_OK) {
         vtss_debug_print_mac_entry(pr, "Dynamic Entries (GET_NEXT)", &header, &mac_entry, pgid);
@@ -1725,7 +1726,7 @@ static vtss_rc fa_debug_frer(vtss_state_t *vtss_state,
         idx = ms->idx;
         for (port_no = 0; port_no < vtss_state->port_count; port_no++) {
             if (VTSS_PORT_BF_GET(ms->port_list, port_no)) {
-                sprintf(buf, "MSID %u, port %u", i, port_no);
+                VTSS_SPRINTF(buf, "MSID %u, port %u", i, port_no);
                 vtss_fa_debug_reg_header(pr, buf);
                 vtss_fa_debug_reg_inst(vtss_state, pr, VTSS_EACL_FRER_CFG_MEMBER(idx), idx, "EACL:FRER_CFG_MEMBER");
                 REG_WRM(VTSS_EACL_FRER_CFG,
@@ -1742,7 +1743,7 @@ static vtss_rc fa_debug_frer(vtss_state_t *vtss_state,
         if (vtss_state->l2.cstream_conf[i].recovery == 0) {
             continue;
         }
-        sprintf(buf, "CSID %u", i);
+        VTSS_SPRINTF(buf, "CSID %u", i);
         vtss_fa_debug_reg_header(pr, buf);
         vtss_fa_debug_reg_inst(vtss_state, pr, VTSS_EACL_FRER_CFG_COMPOUND(i), i, "EACL:FRER_CFG_COMPOUND");
         REG_WRM(VTSS_EACL_FRER_CFG,
@@ -1783,7 +1784,7 @@ static vtss_rc fa_debug_psfp(vtss_state_t *vtss_state,
     for (i = 0; i < VTSS_PSFP_GATE_CNT; i++) {
         if (info->full || vtss_state->l2.psfp.gate[i].enable) {
             id = fa_psfp_sgid(i);
-            sprintf(buf, "PSFP Gate %u (%u)", i, id);
+            VTSS_SPRINTF(buf, "PSFP Gate %u (%u)", i, id);
             vtss_fa_debug_reg_header(pr, buf);
             REG_WR(VTSS_ANA_AC_SG_ACCESS_SG_ACCESS_CTRL,
                    VTSS_F_ANA_AC_SG_ACCESS_SG_ACCESS_CTRL_SGID(id));
@@ -1861,10 +1862,10 @@ static vtss_rc fa_debug_stp(vtss_state_t *vtss_state,
     fa_debug_pmask_header(vtss_state, pr, NULL);
     for (msti = VTSS_MSTI_START; msti < VTSS_MSTI_END; msti++) {
         REG_RDX_PMASK(VTSS_ANA_L3_MSTP_LRN_CFG, msti, &pmask);
-        sprintf(buf, "MSTP_LRN_CFG_%u", msti);
+        VTSS_SPRINTF(buf, "MSTP_LRN_CFG_%u", msti);
         fa_debug_pmask(pr, buf, &pmask);
         REG_RDX_PMASK(VTSS_ANA_L3_MSTP_FWD_CFG, msti, &pmask);
-        sprintf(buf, "MSTP_FWD_CFG_%u", msti);
+        VTSS_SPRINTF(buf, "MSTP_FWD_CFG_%u", msti);
         fa_debug_pmask(pr, buf, &pmask);
     }
     pr("\n");
@@ -1881,7 +1882,7 @@ static vtss_rc fa_debug_mirror(vtss_state_t *vtss_state,
     char             buf[32];
 
     for (i = 0; i < 3; i++) {
-        sprintf(buf, "%s Probe", i == FA_MIRROR_PROBE_RX ? "Rx" : i == FA_MIRROR_PROBE_TX ? "Tx" : "VLAN");
+        VTSS_SPRINTF(buf, "%s Probe", i == FA_MIRROR_PROBE_RX ? "Rx" : i == FA_MIRROR_PROBE_TX ? "Tx" : "VLAN");
         vtss_fa_debug_reg_header(pr, buf);
         j = QFWD_FRAME_COPY_CFG_MIRROR_PROBE(i);
         vtss_fa_debug_reg_inst(vtss_state, pr, VTSS_QFWD_FRAME_COPY_CFG(j),    j, "QFWD:FRAME_COPY_CFG");
@@ -1893,7 +1894,7 @@ static vtss_rc fa_debug_mirror(vtss_state_t *vtss_state,
 
         fa_debug_pmask_header(vtss_state, pr, NULL);
         REG_RDX_PMASK(VTSS_ANA_AC_MIRROR_PROBE_PROBE_PORT_CFG, i, &pmask);
-        sprintf(buf, "PROBE_PORT_CFG_%u", i);
+        VTSS_SPRINTF(buf, "PROBE_PORT_CFG_%u", i);
         fa_debug_pmask(pr, buf, &pmask);
         pr("\n");
     }
@@ -1947,7 +1948,8 @@ static vtss_rc fa_l2_port_map_set(vtss_state_t *vtss_state)
     /* Setup VLAN configuration */
     VTSS_RC(fa_vlan_conf_set(vtss_state));
 
-    /* Include all ports in VLAN 1, exclude all ports from VLAN 4095 */
+    /* Include all ports in VLAN 1, exclude all ports from VLAN 0 and 4095 */
+    VTSS_RC(fa_vlan_mask_update(vtss_state, 0, state->port_none));
     VTSS_RC(fa_vlan_mask_update(vtss_state, 1, state->port_all));
     VTSS_RC(fa_vlan_mask_update(vtss_state, 4095, state->port_none));
 

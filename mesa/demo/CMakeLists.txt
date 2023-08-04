@@ -30,6 +30,7 @@ target_link_libraries(init PUBLIC "-static")
 add_executable(fa_board_fpga_init fa_board_fpga_init.c)
 
 include_directories(../../meba/include)
+include_directories(../../mepa/vtss/include)
 
 if (EXISTS ag/mesa-rpc.c AND EXISTS ag/mesa-rpc.h AND ${MESA_PRE_AG})
 set(MESA_RPC ag/mesa-rpc.c)
@@ -38,10 +39,14 @@ else()
 set(API_MEBA_CACHE_IN)
 list(APPEND API_MEBA_CACHE_IN meba/include/microchip/ethernet/board/api/types.h)
 list(APPEND API_MEBA_CACHE_IN meba/include/microchip/ethernet/board/api/phy.h)
+list(APPEND API_MEBA_CACHE_IN meba/include/microchip/ethernet/board/api/phy_macsec.h)
+list(APPEND API_MEBA_CACHE_IN meba/include/microchip/ethernet/board/api/phy_ts.h)
 list(APPEND API_MEBA_CACHE_IN mepa/include/microchip/ethernet/phy/api/types.h)
 list(APPEND API_MEBA_CACHE_IN mepa/include/microchip/ethernet/phy/api/phy.h)
+list(APPEND API_MEBA_CACHE_IN mepa/include/microchip/ethernet/phy/api/phy_macsec.h)
+list(APPEND API_MEBA_CACHE_IN mepa/include/microchip/ethernet/phy/api/phy_ts.h)
 add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/mesa-ag/mesa-rpc.h ${CMAKE_CURRENT_BINARY_DIR}/mesa-ag/mesa-rpc.c
-                   COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/../../mesa/scripts/ag2.rb -b ${CMAKE_CURRENT_SOURCE_DIR}/../.. -o ${CMAKE_CURRENT_BINARY_DIR}/mesa-ag ${API_MESA_CACHE_IN} ${API_MEBA_CACHE_IN}
+                   COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/../../mesa/scripts/ag2.rb -b ${CMAKE_CURRENT_SOURCE_DIR}/../.. -o ${CMAKE_CURRENT_BINARY_DIR}/mesa-ag ${API_MESA_CACHE_IN} ${API_MEBA_CACHE_IN} ${API_ME_CACHE_IN}
                    DEPENDS mesa_cache
                    COMMENT "Generate mesa-rpc.h/mesa-rpc.c")
 add_custom_target(mesa_rpc_src DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/mesa-ag/mesa-rpc.h ${CMAKE_CURRENT_BINARY_DIR}/mesa-ag/mesa-rpc.c)
@@ -95,7 +100,7 @@ macro(APP_TARGET)
 endmacro()
 
 macro(IMG_TARGET)
-    set(options )
+    set(options MERA)
     set(oneValueArgs NAME APP MACHINE TYPE)
     set(multiValueArgs )
     cmake_parse_arguments(A "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
@@ -124,7 +129,7 @@ macro(IMG_TARGET)
     # List of executables to install on target
     set(EXECUTABLES ${A_APP} cli er fa_board_fpga_init spi_reg_read base64decode)
 
-    if (${HAS_RTE})
+    if (${A_MERA})
         set(EXECUTABLES ${EXECUTABLES} mera-demo mera-cmd mera-sram-rw)
     endif ()
 
@@ -232,9 +237,10 @@ APP_TARGET(NAME app_vsc7552TSN         MESA vsc7552TSN         MEBA meba_sparx5)
 APP_TARGET(NAME app_vsc7549TSN         MESA vsc7549TSN         MEBA meba_sparx5)
 APP_TARGET(NAME app_vsc7546TSN         MESA vsc7546TSN         MEBA meba_sparx5)
 APP_TARGET(NAME app_vsc7558TSN         MESA vsc7558TSN         MEBA meba_sparx5)
+APP_TARGET(NAME app_vsc7558MSEC        MESA vsc7558TSN         MEBA meba_sparx5_macsec)
 APP_TARGET(NAME app_vsc7556            MESA vsc7556            MEBA meba_sparx5)
 APP_TARGET(NAME app_lan966x            MESA lan966x            MEBA meba_lan966x)
-APP_TARGET(NAME app_lan966x_sr         MESA lan966x_sr         MEBA meba_lan966x)
+APP_TARGET(NAME app_lan966x_lm         MESA lan966x_lm         MEBA meba_lan966x)
 APP_TARGET(NAME app_lan966x_ad         MESA lan966x_ad         MEBA meba_lan966x)
 
 
@@ -269,12 +275,12 @@ if (CMAKE_SYSTEM_PROCESSOR STREQUAL "mipsel")
     #IMG_TARGET(NAME mipsel_vsc7449        TYPE mfi  APP app_vsc7449  MACHINE jaguar2_pcb111 )
 
 elseif (CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
-        IMG_TARGET(NAME arm64_ls1046_lan966x     TYPE fit      APP app_lan966x         MACHINE ls1046a)
-        IMG_TARGET(NAME arm64_ls1046_lan966x_sr  TYPE fit      APP app_lan966x_sr      MACHINE ls1046a)
-        IMG_TARGET(NAME arm64_ls1046_lan966x_ad  TYPE fit      APP app_lan966x_ad      MACHINE ls1046a)
+        #IMG_TARGET(NAME arm64_ls1046_lan966x     TYPE fit      APP app_lan966x         MACHINE ls1046a)
+        #IMG_TARGET(NAME arm64_ls1046_lan966x_ad  TYPE fit      APP app_lan966x_ad      MACHINE ls1046a)
 
         #IMG_TARGET(NAME arm64_ls1046_vsc7468     TYPE fit      APP app_vsc7468         MACHINE ls1046a)
         IMG_TARGET(NAME arm64_vsc7558TSN         TYPE ext4     APP app_vsc7558TSN      MACHINE fireant)
+        IMG_TARGET(NAME arm64_vsc7558MSEC        TYPE ext4     APP app_vsc7558MSEC     MACHINE fireant)
         IMG_TARGET(NAME arm64_vsc7552TSN         TYPE ext4     APP app_vsc7552TSN      MACHINE fireant)
         IMG_TARGET(NAME arm64_vsc7549TSN         TYPE ext4     APP app_vsc7549TSN      MACHINE fireant)
         IMG_TARGET(NAME arm64_vsc7546TSN         TYPE ext4     APP app_vsc7546TSN      MACHINE fireant)
@@ -288,12 +294,17 @@ elseif (CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
 
 elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "armv7l")
     # TODO, need to merge the BBB and none BBB versions
+    if (${HAS_RTE})
+        IMG_TARGET(NAME armv7_lan9662     TYPE fit    APP app_lan966x         MACHINE lan966x MERA)
+    else ()
+        IMG_TARGET(NAME armv7_lan9662     TYPE fit    APP app_lan966x         MACHINE lan966x)
+    endif ()
+
     IMG_TARGET(NAME armv7_lan966x         TYPE fit    APP app_lan966x         MACHINE lan966x)
-    IMG_TARGET(NAME armv7_lan966x_sr      TYPE fit    APP app_lan966x_sr      MACHINE lan966x)
+    IMG_TARGET(NAME armv7_lan966x_lm      TYPE fit    APP app_lan966x_lm      MACHINE lan966x)
     IMG_TARGET(NAME armv7_lan966x_ad      TYPE fit    APP app_lan966x_ad      MACHINE lan966x)
 
     IMG_TARGET(NAME armv7_lan966x_bbb     TYPE fit    APP app_lan966x         MACHINE BeagleBoneBlack)
-    IMG_TARGET(NAME armv7_lan966x_sr_bbb  TYPE fit    APP app_lan966x_sr      MACHINE BeagleBoneBlack)
     IMG_TARGET(NAME armv7_lan966x_ad_bbb  TYPE fit    APP app_lan966x_ad      MACHINE BeagleBoneBlack)
 
 

@@ -9,6 +9,8 @@
 extern "C" {
 #endif
 
+#include "microchip/ethernet/board/api.h"
+
 // Trace group information
 typedef struct mscc_appl_trace_group_t {
     const char         *name;
@@ -41,6 +43,20 @@ void mscc_appl_trace_printf(const char *mname,
                             const char *format,
                             ...);
 
+void mscc_phy_vtrace_printf(mepa_trace_group_t group,
+                            mepa_trace_level_t level,
+                            const char *location,
+                            uint32_t line,
+                            const char *format,
+                            va_list args);
+
+void mscc_phy_trace_printf(mepa_trace_group_t group,
+                           mepa_trace_level_t level,
+                           const char *location,
+                           uint32_t line,
+                           const char *format,
+                           ...);
+
 void mscc_appl_trace_vprintf(const char *mname,
                              const char *gname,
                              const mesa_trace_level_t level,
@@ -58,6 +74,9 @@ void mscc_appl_trace_hex(const char *mname,
                          const char *function,
                          const unsigned char *byte_p,
                          const int byte_cnt);
+
+void mscc_mepa_trace_printf(const mepa_trace_data_t *data,
+                            va_list                  args);
 
 // Trace macros
 #define T(_grp, _lvl, _fmt, ...)       { if (trace_groups[_grp].level >= _lvl) mscc_appl_trace_printf(trace_module.name, trace_groups[_grp].name, _lvl, __FILE__, __LINE__, __FUNCTION__, _fmt, ##__VA_ARGS__);}

@@ -177,7 +177,7 @@ typedef struct {
     vtss_rc (* smac_set)(struct vtss_state_s *vtss_state,
                               vtss_port_no_t      port_no);
 #endif //defined (VTSS_FEATURE_DELAY_REQ_AUTO_RESP)
-#if defined(VTSS_ARCH_JAGUAR_2) || defined(VTSS_ARCH_SPARX5) || defined(VTSS_ARCH_LAN966X)
+#if defined(VTSS_ARCH_JAGUAR_2) || defined(VTSS_ARCH_SPARX5) || defined(VTSS_ARCH_LAN966X) || defined(VTSS_ARCH_LUTON26) || defined(VTSS_ARCH_OCELOT)
     vtss_rc (* external_io_mode_set)(struct vtss_state_s *vtss_state, u32 io);
     vtss_rc (* saved_timeofday_get) (struct vtss_state_s *vtss_state, u32 io,
                                      vtss_timestamp_t    *ts,
@@ -186,8 +186,8 @@ typedef struct {
                                               u32                 *offset);
 #endif
     vtss_rc (* seq_cnt_get) (struct vtss_state_s *vtss_state,
-                             uint32_t                   sec_cntr,
-                             uint16_t *const            cnt_val);
+                             u32                 sec_cntr,
+                             u16 *const          cnt_val);
 #if defined(VTSS_ARCH_OCELOT)
     vtss_rc (* alt_clock_saved_timeofday_get) (struct vtss_state_s *vtss_state,
                                      vtss_timestamp_t               *ts);
@@ -205,7 +205,7 @@ typedef struct {
 #if defined (VTSS_ARCH_OCELOT)
     BOOL                        add_sub_option;
 #endif /* VTSS_ARCH_OCELOT */
-#if defined (VTSS_ARCH_JAGUAR_2) || defined(VTSS_ARCH_SPARX5) || defined(VTSS_ARCH_LAN966X)
+#if defined (VTSS_ARCH_JAGUAR_2) || defined(VTSS_ARCH_SPARX5) || defined(VTSS_ARCH_LAN966X) || defined(VTSS_ARCH_LUTON26) || defined(VTSS_ARCH_OCELOT)
     vtss_ts_ext_io_mode_t       io_cfg[VTSS_TS_IO_ARRAY_SIZE];
 #endif /* VTSS_ARCH_JAGUAR2 */
 #if defined (VTSS_FEATURE_DELAY_REQ_AUTO_RESP)
@@ -232,9 +232,11 @@ vtss_rc _vtss_rx_timestamp_id_release(const vtss_inst_t              inst,
 
 vtss_rc vtss_ts_inst_create(struct vtss_state_s *vtss_state);
 
+#if VTSS_OPT_DEBUG_PRINT
 void vtss_ts_debug_print(struct vtss_state_s *vtss_state,
                          const vtss_debug_printf_t pr,
                          const vtss_debug_info_t   *const info);
+#endif
 
 #endif  /* VTSS_FEATURE_TIMESTAMP */
 

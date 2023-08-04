@@ -110,6 +110,15 @@ $methods_blacklist = [
     "mesa_tx_timestamp_idx_alloc",
     "mesa_tod_set_ns_cnt_cb",
     "mesa_cap_callback_add",
+    "meba_phy_debug_info_print",
+    "meba_phy_macsec_dbg_fcb_block_reg_dump",
+    "meba_phy_macsec_dbg_fcb_block_reg_dump",
+    "meba_phy_macsec_dbg_reconfig",
+    "meba_phy_macsec_dbg_reg_dump",
+    "meba_phy_ts_fifo_read_install",
+    "meba_ts_test_config",
+    "meba_phy_macsec_dbg_frm_match_handling_ctrl_reg_dump",
+    "meba_phy_ts_fifo_get",
 ]
 
 $methods_greylist = [
@@ -953,12 +962,15 @@ $options[:input_files].each do |x|
         handle_root ast[:root]
 
     rescue Parslet::ParseFailed => error
-        trace error.cause.ascii_tree
-        trace "Failed #{x}"
+        puts "Failed #{x}"
+        puts error
+        puts error.parse_failure_cause.ascii_tree
+        raise
 
     rescue => err
         trace "Failed #{x}"
         trace err.backtrace.join("\n\t") .sub("\n\t", ": #{err}#{err.class ? " (#{err.class})" : ''}\n\t")
+        raise
     end
 end
 

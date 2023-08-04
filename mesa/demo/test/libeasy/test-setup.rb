@@ -98,21 +98,87 @@ class CliIO
         end
     end
 
+    def get_cursor
+      @input_buf = ""
+      send ""
+      sleep 0.1
+      poll_stdin 0.1
+
+      while l = pop_line
+      end
+
+      x = @input_buf
+      @input_buf = ""
+
+      return x
+    end
+
     def read_line_expect_end pattern
-        while true
-            while l = pop_line
-                yield l
-            end
-
-            if @input_buf.match pattern
-                @input_buf = ""
-                return true
-            end
-
-            if !poll_stdin
-                raise "pattern not found"
-            end
+      while true
+        while l = pop_line
+          yield l
         end
+
+        if @input_buf.match pattern
+          @input_buf = ""
+          return true
+        end
+
+        if !poll_stdin
+          raise "pattern not found"
+        end
+      end
+    end
+
+    def read_line_expect_out_end pattern
+      while true
+        while l = pop_line
+          yield l
+          if l.match pattern
+            return true
+          end
+        end
+
+        if @input_buf.match pattern
+          @input_buf = ""
+          return true
+        end
+
+        if !poll_stdin
+          raise "pattern not found"
+        end
+      end
+    end
+
+    def read_line_expect_retry pattern, total_timeout, retry_timeout, retry_cmd = nil
+      timeout_before = @timeout
+      @timeout = retry_timeout
+      match = false
+
+      start = Time.now
+      while Time.now - start < total_timeout
+        begin
+          match = read_line_expect_out_end pattern do |l|
+            if block_given?
+              yield l
+            else
+              console l
+            end
+          end
+          if match
+            break
+          end
+        rescue
+          if retry_cmd
+            send retry_cmd
+          end
+        end
+      end
+
+      @timeout = timeout_before
+      if not match
+        raise "pattern not found"
+      end
     end
 
     def flush_input
@@ -248,6 +314,11 @@ class MesaDut
         execute cmd, "run_err"
     end
 
+    # ignore errors
+    def run_ignore cmd, *args
+        execute cmd, "try_ignore", *args
+    end
+
     # Run cli command wrapped with json. Stop test if error.
     def call cmd, *args
         call_execute cmd, "run", *args
@@ -273,63 +344,9 @@ class MesaDut
         call_execute cmd, "try_ignore", *args
     end
 
-    def sw_reboot(cnt = 10)
-        @io.sysrq("b")
-        @io.send "\nres\n" # in case we are in uboot
-
-        redboot = false
-        while l = @io.read_one_line
-            console l
-
-            case l
-            when /U-Boot/
-                break
-            when /RedBoot/
-                redboot = true
-                break
-            when /b: not found/ #in case sysrq("b") fails
-                if (cnt > 0)
-                    sw_reboot(cnt - 1)
-                else
-                    @io.send "\nreboot\n" # if in Linux and sysrq not working
-                end
-                return
-            when /b: command not found/ #in case sysrq("b") fails
-                @io.send "\necho 'b' > /proc/sysrq-trigger\n" # in case we are in qemu
-                return
-            end
-        end
-
-        if redboot
-            t_d "Doing a RedBoot ramload - BE AWARE NEW IMAGE MAY NOT BE LOADED"
-            while l = @io.read_one_line
-                console l
-
-                case l
-                when /Executing boot script in/
-                    break
-                else
-                end
-            end
-
-            @io.write [3].pack("c")
-            sleep 0.1
-            @io.send "ramload"
-        end
-
-    end
-
     def linux_login
-        @io.timeout = 300
-        @io.read_line_expect_end /login:/ do |l|
-            console l
-        end
-
-        @io.timeout = 1
-        @io.send "root"
-        @io.read_line_expect_end /#/ do |l|
-            console l
-        end
+        @io.read_line_expect_retry /login:/, 180, 2, ""
+        @io.read_line_expect_retry /#/, 10, 1, "root"
         @io.cmd "echo 4 > /proc/sys/kernel/printk"
     end
 
@@ -444,6 +461,11 @@ class MesaDut
         @background_jobs[pid[:pid]] = {:ts_begin => ts_begin, :out => "", :err => "", :in => "", :name => name, :on => "dut"}
 
         return pid
+    end
+
+    def bg_exitstatus pid
+        poll_cmd_output(pid)
+        @background_jobs[pid[:pid]][:res]
     end
 
     def bg_sink pid
@@ -720,6 +742,11 @@ class TestPCRemote
         return pid[:pid]
     end
 
+    def bg_exitstatus pid
+        poll_cmd_output(pid)
+        @background_jobs[pid][:res]
+    end
+
     def get name
         src_url = URI("http://#{@easytest_server}/ws/#{name}")
         res = Net::HTTP.get_response(src_url)
@@ -884,240 +911,14 @@ def upload_utils conf
 
 end
 
-$easyframes_sha = "e922a34e1778e60be322ef7c3f54d3fac68e03c7"
+$easyframes_sha = "ce45ec85871ad2f1412a964868f8ad11bf581bfc"
 
-class Switchdev_Pc_b2b_4x
-    attr_accessor :dut, :pc, :links, :vinst, :vconn, :ts_external_clock_looped, :port_admin
-
-    def initialize conf, mesa_args, topo_name
-        #Default topology
-        dut_url = conf["dut"]["terminal"]
-        dut_args = conf["dut"]["mesa_demo_args"]
-        dut_ports = conf["dut"]["ports"]
-        dut_looped_ports = conf["dut"]["looped_ports"]
-        dut_looped_ports_10g = conf["dut"]["looped_ports_10g"]
-        port_admin = conf["dut"]["port_admin"]
-        pcb = conf["dut"]["pcb"]
-        cap = conf["dut"]["cap"]
-        map = conf["dut"]["port-name-map"]
-        pc_ports = conf["pc"]["ports"]
-
-        #Check for any multi topology overwriting
-        if (conf["Multi_topo"] != nil)
-            conf["Multi_topo"].each do |topo|
-                next if (topo["#{topo_name}"] == nil)
-                name = topo["#{topo_name}"]
-                if (name["dut"] != nil)
-                    if (name["dut"]["ports"] != nil)
-                        dut_ports = name["dut"]["ports"]
-                    end
-                    if (name["dut"]["port-name-map"] != nil)
-                        map = name["dut"]["port-name-map"]
-                    end
-                    if (name["dut"]["looped_ports"] != nil)
-                        dut_looped_ports = name["dut"]["looped_ports"]
-                    end
-                end
-                if (name["pc"] != nil)
-                    if (name["pc"]["ports"] != nil)
-                        pc_ports = name["pc"]["ports"]
-                    end
-                end
-            end
-        end
-
-        #Do the Linux port mapping if any
-        dut_ports_sd = []
-        dut_looped_ports_sd = []
-        map.each do |item|
-            if dut_ports.include? item["idx"]
-                dut_ports_sd << item["linux"]
-            elsif dut_looped_ports.include? item["idx"]
-                dut_looped_ports_sd << item["linux"]
-            elsif dut_looped_ports_10g.include? item["idx"]
-                dut_looped_ports_sd << item["linux"]
-            else
-                puts "Error in portmap"
-                exit
-            end
-        end
-
-        #Create the DUT
-        @dut = MesaDut.new :switchdev, dut_url, dut_ports_sd, dut_looped_ports_sd, dut_looped_ports_10g, port_admin, pcb, cap
-
-        if conf.key?("easytest_cmd_server")
-            @pc = TestPCRemote.new conf["easytest_cmd_server"], pc_ports, conf["easytest_server"]
-            @pc.bash_function "rvm use 2.6.2"
-            #@pc.run "rvm info"
-            upload_utils conf
-            @pc.run "bundle-install.sh"
-            @pc.run "lazy-ef-install.rb #{$easyframes_sha}" # TODO, find a better place to store this data
-        else
-            @pc = TestPC.new pc_ports
-        end
-
-        @links = dut_ports_sd.zip(pc_ports).map{|e| {:dut => e[0], :pc => e[1]}}
-        @ts_external_clock_looped = (conf["ts_external_clock_looped"] == true) ? true : false
-        if conf["pc"].key?("et_idx")
-           @pc.bash_function "export IDX=#{conf["pc"]["et_idx"]}"
-        end
-
-        #Check for any multi topology commands
-        if (conf["Multi_topo"] != nil)
-            conf["Multi_topo"].each do |topo|
-                if (topo["#{topo_name}"] != nil)
-                    name = topo["#{topo_name}"]
-                    name["command"].each do |command|  #Do all required server PC commands
-                        @pc.run command
-                        sleep 1
-                    end
-                end
-            end
-        end
-
-        if $options[:no_init]
-            @pc.run "/easytest/local/if-setup-l2-test.rb"
-            @dut.mute
-        else
-            t_i "Preparing PC for network load"
-            @pc.run "/easytest/local/if-setup-dhcp.rb"
-
-            reboot_dut conf
-
-            t_i "Prepare for test run"
-            @pc.run "/easytest/local/if-setup-l2-test.rb"
-            @dut.mute
-
-            t = ""
-            t = $options[:dut_trace]
-
-            @dut.run "echo 0 > /proc/sys/kernel/printk"
-            @dut.bg "rte", "mera-demo -f"
-        end
-
-        @vinst = []
-        @vconn = []
-
-        ports = []
-        dut_ports_sd.each_with_index do |port, idx|
-            if port.is_a? Integer
-                @dut.run "ip link set eth#{port} up"
-            else
-                @dut.run "ip link set #{port} up"
-            end
-            ports << pc_ports[idx]
-        end
-
-        if !$options[:no_init]
-            @pc.run "poll_interface_state.rb -t 60 #{ports.join " "}"
-        end
-
-        # TODO, wait for the DUT to see the link
-    end
-
-    def reboot_dut conf
-        t_i "SW Rebooting DUT"
-        @dut.sw_reboot
-        loop = 0
-        while loop < 3 do
-            if !@dut.terminal_alive 5
-                t_i "Terminal not responsive - power-cycle "
-                @pc.run conf["power_control"]
-            else
-                break
-            end
-            loop = loop + 1
-        end
-        @dut.linux_login
-    end
-
-    def uninit
-        @pc.run "/easytest/local/if-setup-dhcp.rb"
-        @dut.unmute
-
-        @vinst.each do |q|
-            q.stop
-        end
-        @vinst = []
-
-        @vconn.each do |c|
-            c.stop
-        end
-        @vconn = []
-    end
-end
-
-class Switchdev_Pc_bsp
-    attr_accessor :dut, :pc
-
-    def initialize conf
-        dut_url = conf["dut"]["terminal"]
-        port_admin = conf["dut"]["port_admin"]
-        pcb = conf["dut"]["pcb"]
-        @dut = MesaDut.new :bsp, dut_url, nil, nil, nil, port_admin, pcb, nil
-
-        if conf.key?("easytest_cmd_server")
-            @pc = TestPCRemote.new conf["easytest_cmd_server"], nil, conf["easytest_server"]
-            @pc.bash_function "rvm use 2.6.2"
-            #@pc.run "rvm info"
-            upload_utils conf
-            @pc.run "bundle-install.sh"
-            @pc.run "lazy-ef-install.rb #{$easyframes_sha}" # TODO, find a better place to store this data
-        else
-            @pc = TestPC.new nil
-        end
-
-        t_i "Rebooting DUT"
-        @dut.sw_reboot
-        @dut.linux_login
-    end
-
-    def uninit
-        @pc.run "/easytest/local/if-setup-dhcp.rb"
-        @dut.unmute
-    end
-end
-
-class Qemu_Pc
-    attr_accessor :pc, :vinst, :vconn
-
-    def initialize conf
-        dut_url = conf["dut"]["terminal"]
-        port_admin = conf["dut"]["port_admin"]
-        pcb = conf["dut"]["pcb"]
-
-        if conf.key?("easytest_cmd_server")
-            @pc = TestPCRemote.new conf["easytest_cmd_server"], nil, conf["easytest_server"]
-            @pc.bash_function "rvm use 2.6.2"
-            #@pc.run "rvm info"
-            upload_utils conf
-            @pc.run "bundle-install.sh"
-            @pc.run "lazy-ef-install.rb #{$easyframes_sha}" # TODO, find a better place to store this data
-        else
-            @pc = TestPC.new nil
-        end
-
-        @vinst = []
-        @vconn = []
-    end
-
-    def uninit
-        @vinst.each do |q|
-            q.stop
-        end
-        @vinst = []
-
-        @vconn.each do |c|
-            c.stop
-        end
-        @vconn = []
-    end
-end
+UBOOT_PROMPTS = ["m => ", "ocelot # ", "luton # ", "jr2 # ", "servalt # ", "=> "]
 
 class Mesa_Pc_b2b
-    attr_accessor :dut, :pc, :links, :ts_external_clock_looped, :port_admin
+    attr_accessor :dut, :pc, :links, :ts_external_clock_looped, :port_admin, :port_map, :labels
 
-    def initialize conf, mesa_args, port_cnt, topo_name
+    def initialize conf, mesa_args, port_cnt, topo_name, labels
         #Default topology
         dut_url = conf["dut"]["terminal"]
         dut_args = conf["dut"]["mesa_demo_args"]
@@ -1159,11 +960,10 @@ class Mesa_Pc_b2b
 
         #Create the DUT
         @dut = MesaDut.new :mesa, dut_url, dut_ports, dut_looped_ports, dut_looped_ports_10g, port_admin, pcb, cap
+        @labels = labels
 
         if conf.key?("easytest_cmd_server")
             @pc = TestPCRemote.new conf["easytest_cmd_server"], pc_ports, conf["easytest_server"]
-            @pc.bash_function "rvm use 2.6.2"
-            #@pc.run "rvm info"
             upload_utils conf
             @pc.run "bundle-install.sh"
             @pc.run "lazy-ef-install.rb #{$easyframes_sha}" # TODO, find a better place to store this data
@@ -1228,27 +1028,220 @@ class Mesa_Pc_b2b
                 end
             end
         end
+
+        cnt = @dut.call("mesa_capability", "MESA_CAP_PORT_CNT")
+        @port_map = @dut.call("mesa_port_map_get", cnt)
+    end
+
+    def uboot_break
+      begin
+        t_i "try to reach uboot prompt"
+        @dut.io.read_line_expect_retry /(Hit any key to stop autoboot|Press SPACE to abort autoboot)/, 30, 1
+        @dut.io.send " "
+        sleep 0.1
+        cur  = @dut.io.get_cursor
+        if not UBOOT_PROMPTS.include? cur
+          t_i "Cursor: #{cur} does not look like UBoot"
+          return false
+        end
+        t_i "Reached to UBoot console"
+        return true
+
+      rescue => e
+        t_backtrace e
+        return false
+      end
+    end
+
+    def trigger_reboot_dut conf
+      again = 10
+      while again > 0
+        t_i "Detect environment and trigger a reboot"
+        l = @dut.io.get_cursor
+        t_i "Got: #{l}"
+
+        if UBOOT_PROMPTS.include? l
+          t_i "Looks like uboot"
+          @dut.io.send "reset"
+          again = 0
+        elsif l =~ /#/
+          t_i "Looks linux shell - try reboot cmd"
+          @dut.io.sysrq("b")
+          @dut.io.send ""
+          @dut.io.send "reboot"
+          again = 0
+
+        elsif l =~ /login:/
+          t_i "Looks login shell"
+          @dut.io.send "root"
+          again -= 1
+          sleep 1
+        elsif l =~ /Password:/
+          t_i "Looks linux login prompt"
+          # root does not use any password - maybe some garbage was entered
+          @dut.io.send ""
+          sleep 5
+          again -= 1
+        else
+          if again > 8
+            t_i "Unexpected prompt: #{l} - try reset tty"
+            @dut.io.send("stty echo")
+            sleep(0.1)
+            @dut.io.send("export PS1=\"# \"")
+            sleep(0.1)
+            @dut.io.send("export PS2=\"> \"")
+            sleep(0.1)
+            @dut.io.send("")
+            again -= 1
+          else
+            t_i "Unexpected prompt: #{l} - do power-cycle"
+            @pc.run conf["power_control"]
+            again = 0
+            t_i "Unexpected prompt: #{l} - do power-cycle"
+          end
+        end
+      end
+    end
+
+    def trigger_laguna_reboot_dut conf
+      again = 10
+      while again > 0
+        t_i "Detect environment and trigger a reboot"
+        l = @dut.io.get_cursor
+        t_i "Got: #{l}"
+
+        if l =~ /#/
+          t_i "Do not attempt to SW-reset Laguna"
+          @dut.io.send("echo 16 >/sys/class/gpio/export")
+          sleep 0.1
+          @dut.io.send("echo out >/sys/class/gpio/gpio16/direction")
+          sleep 0.1
+          @dut.io.send("echo 0 >/sys/class/gpio/gpio16/value")
+          sleep 0.1
+          @dut.io.send("echo 1 >/sys/class/gpio/gpio16/value")
+          t_i "Do not attempt to SW-reset Laguna - DONE"
+          return
+
+        elsif l =~ /login:/
+          t_i "Looks login shell"
+          @dut.io.send "root"
+          again -= 1
+          sleep 1
+        elsif l =~ /Password:/
+          t_i "Looks linux login prompt"
+          # root does not use any password - maybe some garbage was entered
+          @dut.io.send ""
+          sleep 5
+          again -= 1
+        else
+          t_i "Unexpected prompt: #{l} - do power-cycle"
+          @dut.io.send("stty echo")
+          sleep(0.1)
+          @dut.io.send("export PS1=\"# \"")
+          sleep(0.1)
+          @dut.io.send("export PS2=\"> \"")
+          sleep(0.1)
+          @dut.io.send("")
+          again -= 1
+        end
+      end
     end
 
     def reboot_dut conf
-        t_i "SW Rebooting DUT"
-        @dut.sw_reboot
-        loop = 0
-        while loop < 3 do
-            if !@dut.terminal_alive 5
-                t_i "Terminal not responsive - power-cycle "
-                @pc.run conf["power_control"]
-            else
-                break
-            end
-            loop = loop + 1
+      if ((conf["dut"]["pcb"] == "6849-Sunrise") && (conf["dut"]["family"] == "laguna"))
+        trigger_laguna_reboot_dut conf
+      else
+        trigger_reboot_dut conf
+      end
+
+      if not uboot_break()
+        @pc.run conf["power_control"]
+        if not uboot_break()
+          t_i "Give up reach UBoot prompt"
+          raise "Give up reach UBoot prompt"
         end
-        @dut.linux_login
+
+      end
+
+      @dut.io.send "run bootcmd"
+      @dut.linux_login
     end
 
     def uninit
         @pc.run "/easytest/local/if-setup-dhcp.rb"
         @dut.unmute
+    end
+end
+
+def show_mesa_setup(ts)
+    test("show-setup", false) do
+        pmap = ts.port_map
+
+        max = 0
+        cnt = ts.dut.p.length
+        cnt.times do |idx|
+            len = ts.pc.p[idx].length
+            if (len > max)
+                max = len
+            end
+        end
+
+        # Show diagram of PC and DUT with port links
+        cnt.times do |idx|
+            port = ts.dut.p[idx]
+            chip_port = pmap[port]["chip_port"]
+            name = ts.pc.p[idx]
+            str = "|       #{idx} |- #{name} "
+            (max - name.length).times do
+                str += "-"
+            end
+            str += "---"
+            str += "-" if (port < 10)
+            str += " #{port} -| #{chip_port}"
+            str += " " if (chip_port < 10)
+            str += "      |"
+
+            txt = ""
+            len = (str.length - 22)
+            len.times do
+                txt += " "
+            end
+
+            if (idx == 0)
+                a = ts.labels["platform"].split("_t3")
+                if (a.size == 2)
+                    len = (txt.length + 12)
+                    l = ("   t3" + a[1])
+                    while (l.length < len)
+                        l += " "
+                    end
+                    l += a[0]
+                    t_i(l)
+                end
+                t_i("+---------+" + txt + "+---------+")
+            end
+            t_i(str)
+            if (idx == ((cnt / 2) - 1))
+                t_i("|   PC    |" + txt + "|   DUT   |")
+            elsif (idx == (cnt - 1))
+                t_i("+---------+" + txt + "+---------+") if (idx == (cnt - 1))
+            else
+                t_i("|         |" + txt + "|         |")
+            end
+        end
+
+        # Show looped ports
+        [ts.dut.looped_port_list, ts.dut.looped_port_list_10g].each_with_index do |port_list, idx|
+            cnt = (port_list == nil ? 0 : (port_list.length / 2))
+            cnt.times do |i|
+                p1 = port_list[2 * i]
+                p2 = port_list[2 * i + 1]
+                cp1 = pmap[p1]["chip_port"]
+                cp2 = pmap[p2]["chip_port"]
+                str = (idx == 0 ? "1G_#{i} " : "10G_#{i}")
+                t_i("Loop_#{str}: #{p1}-#{p2} (#{cp1}-#{cp2})")
+            end
+        end
     end
 end
 
@@ -1280,18 +1273,16 @@ def dut_init_block name
     exit -1 if has_err
 end
 
-def get_test_setup_inner(setup, conf, mesa_args, topo_name)
+def get_test_setup_inner(setup, conf, mesa_args, topo_name, labels)
     case setup
     when "mesa_pc_b2b_4x"
-        return Mesa_Pc_b2b.new(conf, mesa_args, 4, topo_name)
+        ts = Mesa_Pc_b2b.new(conf, mesa_args, 4, topo_name, labels)
+        show_mesa_setup(ts)
+        return ts
     when "mesa_pc_b2b_2x"
-        return Mesa_Pc_b2b.new(conf, mesa_args, 2, topo_name)
-    when "switchdev_pc_b2b_4x"
-        return Switchdev_Pc_b2b_4x.new(conf, mesa_args, topo_name)
-    when "switchdev_pc_bsp"
-        return Switchdev_Pc_bsp.new(conf)
-    when "qemu_pc"
-        return Qemu_Pc.new(conf)
+        ts = Mesa_Pc_b2b.new(conf, mesa_args, 2, topo_name, labels)
+        show_mesa_setup(ts)
+        return ts
     else
         raise "No such setup in inventory"
     end
@@ -1375,7 +1366,7 @@ def get_test_setup(setup, labels= {}, mesa_args = "", topo_name = "default")
     xml_tag_end "labels"
 
     dut_init_block setup do
-        ts = get_test_setup_inner(setup, conf, mesa_args, topo_name)
+        ts = get_test_setup_inner(setup, conf, mesa_args, topo_name, labels)
         $global_test_setup = ts
 
         if (defined? ts.dut) and ts.dut.api == :mesa
@@ -1420,7 +1411,11 @@ def basic_br_init()
         $eth2 = $ts.dut.p[2] ? "#{$ts.dut.p[2]}" : nil
         $eth3 = $ts.dut.p[3] ? "#{$ts.dut.p[3]}" : nil
     end
-    $br   = "br0"
+
+    # name the bridge the same as the index of the PC NIC that is used
+    # in this way in case the test fails we can clean up before the new
+    # test is started
+    $br   = "br#{$ts.pc.p[0][3..3]}"
 
     $eth0_mac      = "::1:0:0"
     $eth0_mac_peer = "::1:1:0"
@@ -1428,18 +1423,23 @@ def basic_br_init()
     $eth1_mac_peer = "::1:1:1"
     $eth2_mac      = "::1:0:2"
     $eth2_mac_peer = "::1:1:2"
+    $eth3_mac      = "::1:0:3"
+    $eth3_mac_peer = "::1:1:3"
     $br_mac        = "::1:0:0"
+
+    # try to delete the bridge on PC in case one exists
+    $ts.pc.try_ignore "ip link del dev #{$br}"
 
     $ts.dut.run "ip link set dev #{$eth0} address 00:00:00:01:00:00" if $eth0
     $ts.dut.run "ip link set dev #{$eth1} address 00:00:00:01:00:01" if $eth1
     $ts.dut.run "ip link set dev #{$eth2} address 00:00:00:01:00:02" if $eth2
     $ts.dut.run "ip link set dev #{$eth3} address 00:00:00:01:00:03" if $eth3
 
-    $ts.dut.run "ip link add name br0 type bridge"
-    $ts.dut.run "ip link set dev br0 up"
+    $ts.dut.run "ip link add name #{$br} type bridge"
+    $ts.dut.run "ip link set dev #{$br} up"
 
-    $ts.dut.run "ip link set #{$eth0} master br0" if $eth0
-    $ts.dut.run "ip link set #{$eth1} master br0" if $eth1
-    $ts.dut.run "ip link set #{$eth2} master br0" if $eth2
-    $ts.dut.run "ip link set #{$eth3} master br0" if $eth3
+    $ts.dut.run "ip link set #{$eth0} master #{$br}" if $eth0
+    $ts.dut.run "ip link set #{$eth1} master #{$br}" if $eth1
+    $ts.dut.run "ip link set #{$eth2} master #{$br}" if $eth2
+    $ts.dut.run "ip link set #{$eth3} master #{$br}" if $eth3
 end

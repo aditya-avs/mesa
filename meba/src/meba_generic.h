@@ -6,6 +6,7 @@
 #define _MEBA_GENERIC_H_
 
 #include <microchip/ethernet/board/api.h>
+#include <vtss_phy_api.h>
 
 /** Phy instance constant */
 #define PHY_INST NULL
@@ -47,8 +48,7 @@
 mesa_ptp_event_type_t meba_generic_ptp_source_to_event(meba_inst_t inst,
                                                        meba_event_t event_id);
 
-mesa_phy_ts_event_t meba_generic_phy_ts_source_to_event(meba_inst_t inst,
-                                                        meba_event_t event_id);
+mepa_ts_event_t meba_generic_phy_ts_source_to_event(meba_inst_t inst, meba_event_t event_id);
 
 mesa_rc meba_generic_ptp_handler(meba_inst_t inst,
                                  meba_event_signal_t interrupt_source_signal);

@@ -59,7 +59,6 @@ typedef struct {
     vtss_chip_counter_t rx_control;
     vtss_chip_counter_t rx_longs;
 #endif
-#if defined(VTSS_FEATURE_QOS)
     vtss_chip_counter_t rx_classified_drops;
     vtss_chip_counter_t rx_red_class[VTSS_PRIOS];
     vtss_chip_counter_t rx_yellow_class[VTSS_PRIOS];
@@ -69,7 +68,7 @@ typedef struct {
     vtss_chip_counter_t dr_tail;
     vtss_chip_counter_t dr_yellow_class[VTSS_PRIOS];
     vtss_chip_counter_t dr_green_class[VTSS_PRIOS];
-#endif
+
     /* Tx counters */
     vtss_chip_counter_t tx_collision;
     vtss_chip_counter_t tx_drops;
@@ -100,10 +99,8 @@ typedef struct {
     vtss_chip_counter_t tx_1024_1526;
     vtss_chip_counter_t tx_1527_max;
 #endif
-#if defined(VTSS_FEATURE_QOS)
     vtss_chip_counter_t tx_yellow_class[VTSS_PRIOS];
     vtss_chip_counter_t tx_green_class[VTSS_PRIOS];
-#endif
     vtss_chip_counter_t tx_aging;
 #if defined(VTSS_FEATURE_QOS_FRAME_PREEMPTION)
     vtss_chip_counter_t tx_llct;
@@ -210,8 +207,6 @@ typedef struct {
     vtss_chip_counter_t rx_size1519_max;
     vtss_chip_counter_t rx_local_drops;
 #if defined(VTSS_FEATURE_QOS)
-    vtss_chip_counter_t rx_green_drops[VTSS_PRIOS];
-    vtss_chip_counter_t rx_yellow_drops[VTSS_PRIOS];
     vtss_chip_counter_t rx_class[VTSS_PRIOS];
 #endif
     vtss_chip_counter_t rx_policer_drops;
@@ -233,6 +228,8 @@ typedef struct {
 #if defined(VTSS_FEATURE_QOS)
     vtss_chip_counter_t tx_yellow_class[VTSS_PRIOS];
     vtss_chip_counter_t tx_green_class[VTSS_PRIOS];
+    vtss_chip_counter_t tx_green_drops[VTSS_PRIOS];
+    vtss_chip_counter_t tx_yellow_drops[VTSS_PRIOS];
 #endif
     vtss_chip_counter_t tx_queue_drops;
     vtss_chip_counter_t tx_multi_coll;
@@ -271,8 +268,6 @@ typedef struct {
     vtss_dual_counter_t rx_size1519_max;
     vtss_chip_counter_t rx_local_drops;
 #if defined(VTSS_FEATURE_QOS)
-    vtss_chip_counter_t rx_green_drops[VTSS_PRIOS];
-    vtss_chip_counter_t rx_yellow_drops[VTSS_PRIOS];
     vtss_chip_counter_t rx_class[VTSS_PRIOS];
 #endif
     vtss_chip_counter_t rx_policer_drops;
@@ -294,6 +289,8 @@ typedef struct {
 #if defined(VTSS_FEATURE_QOS)
     vtss_chip_counter_t tx_yellow_class[VTSS_PRIOS];
     vtss_chip_counter_t tx_green_class[VTSS_PRIOS];
+    vtss_chip_counter_t tx_green_drops[VTSS_PRIOS];
+    vtss_chip_counter_t tx_yellow_drops[VTSS_PRIOS];
 #endif
     vtss_chip_counter_t tx_queue_drops;
     vtss_chip_counter_t tx_multi_coll;
@@ -381,6 +378,7 @@ typedef struct {
 #define KR_GEN1_DONE       (1 << 4)
 #define KR_AN_RATE         (0xF)
 #define KR_ANEG_RATE_25G    7
+#define KR_ANEG_RATE_25G_S  8
 #define KR_ANEG_RATE_10G    9
 #define KR_ANEG_RATE_5G     11
 #define KR_ANEG_RATE_2G5    12
@@ -432,9 +430,9 @@ typedef struct {
 } vtss_port_kr_fw_req_t;
 
 typedef struct {
-    u32  amplitude;
-    u32  tap_dly;
-    u32  tap_adv;
+    u16  amplitude;
+    u16  tap_dly;
+    u16  tap_adv;
     BOOL c0_done;
     BOOL compl_ack;
     BOOL base_page;
@@ -447,6 +445,10 @@ typedef struct {
 #endif // defined(VTSS_FEATURE_PORT_KR_IRQ)
 
 #define VTSS_SD6G_40_CNT 3
+
+#if defined(VTSS_ARCH_SPARX5)
+#define VTSS_SD28_CNT 33
+#endif
 
 typedef struct {
     /* CIL function pointers */
@@ -544,13 +546,13 @@ typedef struct {
                           const vtss_port_no_t port_no,
                           u16 *const ber);
 
+#endif /* VTSS_FEATURE_PORT_KR_IRQ */
     vtss_rc (* kr_ctle_adjust)(struct vtss_state_s *vtss_state,
                                const vtss_port_no_t port_no);
 
     vtss_rc (* kr_ctle_get)(struct vtss_state_s *vtss_state,
                             const vtss_port_no_t port_no, vtss_port_ctle_t *const ctle);
 
-#endif /* VTSS_FEATURE_PORT_KR_IRQ */
     vtss_rc (* test_conf_set)(struct vtss_state_s *vtss_state, const vtss_port_no_t port_no);
 
     vtss_rc (* serdes_debug_set)(struct vtss_state_s *vtss_state, const vtss_port_no_t port_no,
@@ -577,6 +579,10 @@ typedef struct {
     vtss_port_conf_t              conf[VTSS_PORT_ARRAY_SIZE];
     BOOL                          conf_set_called[VTSS_PORT_ARRAY_SIZE];
     vtss_serdes_mode_t            sd6g40_mode[VTSS_SD6G_40_CNT];
+#if defined(VTSS_ARCH_SPARX5)
+    vtss_serdes_mode_t            sd28_mode[VTSS_SD28_CNT];
+    u32                           cmu_enable_mask;
+#endif
     vtss_serdes_mode_t            serdes_mode[VTSS_PORT_ARRAY_SIZE];
     vtss_port_clause_37_control_t clause_37[VTSS_PORT_ARRAY_SIZE];
     vtss_port_test_conf_t         test_conf[VTSS_PORT_ARRAY_SIZE];
@@ -618,8 +624,10 @@ vtss_rc vtss_port_restart_sync(struct vtss_state_s *vtss_state);
 
 vtss_port_no_t vtss_cmn_first_port_no_get(struct vtss_state_s *vtss_state,
                                           const BOOL port_list[VTSS_PORT_ARRAY_SIZE]);
+#if VTSS_OPT_DEBUG_PRINT
 vtss_port_no_t vtss_cmn_port2port_no(struct vtss_state_s *vtss_state,
                                      const vtss_debug_info_t *const info, u32 port);
+#endif
 vtss_port_no_t vtss_api_port(struct vtss_state_s *vtss_state, u32 chip_port);
 vtss_rc vtss_port_conf_set_private(struct vtss_state_s    *vtss_state,
                                    const vtss_port_no_t   port_no,
@@ -628,9 +636,11 @@ vtss_rc vtss_cmn_port_clause_37_adv_get(u32 value, vtss_port_clause_37_adv_t *ad
 vtss_rc vtss_cmn_port_clause_37_adv_set(u32 *value, vtss_port_clause_37_adv_t *adv, BOOL aneg_enable);
 vtss_rc vtss_cmn_port_sgmii_cisco_aneg_get(u32 value, vtss_port_sgmii_aneg_t *sgmii_adv);
 vtss_rc vtss_cmn_port_usxgmii_aneg_get(u32 value, vtss_port_usxgmii_aneg_t *usxgmii);
+#if VTSS_OPT_DEBUG_PRINT
 void vtss_port_debug_print(struct vtss_state_s *vtss_state,
                            const vtss_debug_printf_t pr,
                            const vtss_debug_info_t   *const info);
+#endif
 
 #endif /* VTSS_FEATURE_PORT_CONTROL */
 

@@ -9,7 +9,9 @@
 #include "microchip/ethernet/board/api.h"
 
 mesa_rc meba_poe_generic_chip_initialization(
-    const meba_inst_t               inst);
+    const meba_inst_t               inst,
+    mesa_bool_t                     interruptible_power,
+    int16_t                         restart_cause);
 
 mesa_rc meba_poe_generic_sync(
     const meba_inst_t               inst);
@@ -17,7 +19,7 @@ mesa_rc meba_poe_generic_sync(
 mesa_rc meba_poe_generic_chipset_get(
     const meba_inst_t               inst,
     mesa_port_no_t                  index,
-    meba_poe_chip_state_t          *chip_state);
+    meba_poe_chip_state_t           *chip_state);
 
 mesa_rc meba_poe_generic_version_get(
     const meba_inst_t               inst,
@@ -26,7 +28,7 @@ mesa_rc meba_poe_generic_version_get(
 
 mesa_rc meba_poe_generic_cfg_set(
     const meba_inst_t               inst,
-    meba_poe_cfg_t                  *cfg);
+    meba_poe_global_cfg_t           *cfg);
 
 mesa_rc meba_poe_generic_status_get(
     const meba_inst_t               inst,
@@ -44,7 +46,7 @@ mesa_rc meba_poe_generic_port_cfg_set(
 mesa_rc meba_poe_generic_port_prio_set(
     const meba_inst_t               inst,
     mesa_port_no_t                  port_no,
-    meba_poe_port_prio_t            prio);
+    meba_poe_pd_power_priority_t    prio);
 
 mesa_rc meba_poe_generic_port_max_power_set(
     const meba_inst_t               inst,
@@ -65,8 +67,13 @@ mesa_rc meba_poe_generic_save_command(
 mesa_rc meba_poe_generic_debug(
     const meba_inst_t               inst,
     mesa_port_no_t                  port_no,
-    uint8_t                         *buf,
-    int                             buf_size);
+    char                            *var,
+    uint32_t                        str_len,
+    char                            *title ,
+    char                            *tx_str ,
+    char                            *rx_str ,
+    char                            *msg,
+    int                             max_msg_len);
 
 mesa_rc meba_poe_generic_supply_limits_get(
     const meba_inst_t          inst,

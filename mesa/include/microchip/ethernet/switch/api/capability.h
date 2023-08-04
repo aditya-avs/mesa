@@ -85,7 +85,8 @@ typedef enum {
     MESA_CAP_PACKET_MASQ_PORT,              /**< Masquerade port support */
     MESA_CAP_PACKET_INS_TAG,                /**< Insert of tag used internally */
     MESA_CAP_PACKET_PTP_ACTION,             /**< PTP legal action mask */
-    MESA_CAP_PACKET_AUTO_TAGGING,            /**< Indicates that switch can do tagging automatically at egress without need for using FDMA */
+    MESA_CAP_PACKET_AUTO_TAGGING,           /**< Indicates that switch can do tagging automatically at egress without need for using FDMA */
+    MESA_CAP_PACKET_INJ_ENCAP,              /**< Packet Tx supports injection with specific encapsulation */
 
     // AFI
     MESA_CAP_AFI_V1 = 300,                  /**< AFI version 1 */
@@ -155,6 +156,7 @@ typedef enum {
     MESA_CAP_QOS_WRED,                      /**< WRED */
     MESA_CAP_QOS_DLB_CM,                    /**< DLB policer Color Mode */
     MESA_CAP_QOS_EGRESS_SHAPERS_RT,         /**< Egress shaper rate type support */
+    MESA_CAP_QOS_EGRESS_SHAPER_FRAME,       /**< Egress shaper frame rate type support */
     MESA_CAP_QOS_EGRESS_SHAPERS_DLB,        /**< Egress shaper DLB support */
     MESA_CAP_QOS_PORT_POLICER_EXT_DPBL,     /**< Drop Precedence Bypass Level */
     MESA_CAP_QOS_PORT_POLICER_EXT_TTM,      /**< Traffic type mask */
@@ -293,8 +295,10 @@ typedef enum {
     // OAM
     MESA_CAP_VOP = 1200,                    /**< OAM/VOE support */
     MESA_CAP_VOP_CFM,                       /**< OAM/VOE supporting full 802.1 CFM implementation */
+    MESA_CAP_VOP_V0,                        /**< OAM generation 0 (Maserati) */
     MESA_CAP_VOP_V1,                        /**< OAM generation 1 (Serval-1) */
     MESA_CAP_VOP_V2,                        /**< OAM generation 2 (Jaguar-2/Serval-T/SparX-5) */
+    MESA_CAP_VOP_TAGGING,                   /**< VOE can handle different tagging by configuration of the VOE residence port */
     MESA_CAP_VOP_PATH_SERVICE_VOE_CNT,      /**< Number of possible path/service VOEs */
     MESA_CAP_VOP_PORT_VOE_CNT,              /**< Number of possible port VOEs */
     MESA_CAP_VOP_VOE_CNT,                   /**< Total count of VOEs */
@@ -361,20 +365,20 @@ typedef enum {
     MESA_CAP_TOD_SAMPLES_PR_SEC,            /**< The number of times per second that the timeofday is sampled */
 
     // PHY
-    MESA_CAP_PHY_10G = 1600,                /**< 10G PHY API */
-    MESA_CAP_PHY_TS,                        /**< PHY timestamping */
-    MESA_CAP_PHY_MALIBU_10G_PLUGIN_MOUNTED, /**< Board has a Malibu 10G PHY plugin mounted */
-    MESA_CAP_PHY_TS_NUMBER_OF_ENGINES,      /**< Number of PHY timestamping engines */
-    MESA_CAP_PHY_10GBASE_KR,                /**< 10G PHY support for 10GBASE-KR */
+    MESA_CAP_PHY_10G = 1600,                /**< Deprecated: 10G PHY API */
+    MESA_CAP_PHY_TS,                        /**< Deprecated: PHY timestamping */
+    MESA_CAP_PHY_MALIBU_10G_PLUGIN_MOUNTED, /**< Deprecated: Board has a Malibu 10G PHY plugin mounted */
+    MESA_CAP_PHY_TS_NUMBER_OF_ENGINES,      /**< Deprecated: Number of PHY timestamping engines */
+    MESA_CAP_PHY_10GBASE_KR,                /**< Deprecated: 10G PHY support for 10GBASE-KR */
 
     // Switching Chip
     MESA_CAP_SOC_FAMILY = 1700,
 
     // PHY-MACSEC
-    MESA_CAP_PHY_MACSEC = 1800,             /**< PHY MACSEC */
-    MESA_CAP_PHY_MACSEC_SA_CNT,             /**< Max number of supported secure associations in a given PHY */
-    MESA_CAP_PHY_MACSEC_SC_CNT,             /**< Max number of supported secure channels in a given PHY */
-    MESA_CAP_PHY_MACSEC_SECY_CNT,           /**< Max number of supported SECY instances in a given PHY */
+    MESA_CAP_PHY_MACSEC = 1800,             /**< Deprecated: PHY MACSEC */
+    MESA_CAP_PHY_MACSEC_SA_CNT,             /**< Deprecated: Max number of supported secure associations in a given PHY */
+    MESA_CAP_PHY_MACSEC_SC_CNT,             /**< Deprecated: Max number of supported secure channels in a given PHY */
+    MESA_CAP_PHY_MACSEC_SECY_CNT,           /**< Deprecated: Max number of supported SECY instances in a given PHY */
 
     // MEP
     MESA_CAP_MEP_LUTON26 = 1900,            /**< MEP for Luton26 */

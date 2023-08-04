@@ -185,6 +185,7 @@ def compile(ws, odir, preset, c)
 
     if $opt[:simplegrid]
         cmd = "SimpleGridClient -l webstax "
+        cmd << "-e MCHP_DOCKER_NAME=\"ghcr.io/microchip-ung/bsp-buildenv\" -e MCHP_DOCKER_TAG=\"1.9\" "
         cmd << "-w #{$tar} "
         cmd << "-c '#{bcmd}' "
         cmd << "-a #{ws}/#{odir} "
@@ -200,6 +201,7 @@ def compile(ws, odir, preset, c)
             otar = "#{ws}/#{preset}.tar"
             run "tar -xf #{otar}"
             run "rm -f #{otar}"
+            run "cp #{ws}/sg-#{preset}.log ./images/."
         end
     end
 
@@ -371,9 +373,16 @@ step $res, "API Doc" do
         rev = $1
     end
 
+    #MESA-Doc
     run "cd mesa/docs/scripts; #{$rvm_ruby} ./dg.rb -r #{rev} -s #{git_sha}", "doc"
     run "cp ./mesa-doc.html images/.", "doc"
     run "cp ./mesa-doc.html #{$ws}/.", "doc"
+
+    #MEPA-Doc
+    run "cd mepa/docs/scripts; #{$rvm_ruby} ./dg.rb -r #{rev} -s #{git_sha}", "doc"
+    run "cp ./mepa/mepa-doc.html images/.", "doc"
+    run "cp ./mepa/mepa-doc.html #{$ws}/.", "doc"
+
     run "ls", "doc"
 end
 

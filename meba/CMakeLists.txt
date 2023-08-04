@@ -10,6 +10,7 @@ include_directories(../mesa/include)
 include_directories(../include)
 include_directories(./src)
 include_directories(./src/drivers)
+include_directories(../mepa/vtss/include)
 
 option(BUILD_MEBA_ALL "Build all MEBA layers" OFF)
 mark_as_advanced(BUILD_MEBA_ALL)
@@ -91,57 +92,44 @@ macro(MEBA_LIB)
 
     if (${BUILD_MEBA_STATIC_${A_LIB_NAME}})
         message(STATUS "Build STATIC ${A_LIB_NAME} including ${A_MEBA_DEFINES}")
+        set_target_properties(meba_${A_LIB_NAME}_static PROPERTIES EXCLUDE_FROM_ALL FALSE)
         set_target_properties(meba_${A_LIB_NAME}_static_target PROPERTIES EXCLUDE_FROM_ALL FALSE)
+        set_target_properties(meba_only_${A_LIB_NAME} PROPERTIES EXCLUDE_FROM_ALL FALSE)
     else()
+        set_target_properties(meba_${A_LIB_NAME}_static PROPERTIES EXCLUDE_FROM_ALL TRUE)
         set_target_properties(meba_${A_LIB_NAME}_static_target PROPERTIES EXCLUDE_FROM_ALL TRUE)
+        set_target_properties(meba_only_${A_LIB_NAME}  PROPERTIES EXCLUDE_FROM_ALL TRUE)
     endif()
 endmacro()
 
 MEBA_LIB(LIB_NAME caracal MEBA_SRC_FOLDER caracal
-         MEBA_DEFINES           MEBA_HAS_MEPA_VTSS
-         STATIC_DEPENDENCIES    mepa_vtss_static
-         DYNAMIC_DEPENDENCIES   mepa_vtss)
+         STATIC_DEPENDENCIES    mepa_caracal)
 
 MEBA_LIB(LIB_NAME jr2 MEBA_SRC_FOLDER jr2
-         MEBA_DEFINES           MEBA_HAS_MEPA_VTSS   MEBA_HAS_MEPA_AQR  MEBA_HAS_MEPA_INTEL
-         STATIC_DEPENDENCIES    mepa_vtss_static     mepa_aqr_static    mepa_intel_static
-         DYNAMIC_DEPENDENCIES   mepa_vtss            mepa_aqr           mepa_intel)
+         STATIC_DEPENDENCIES    mepa_jr2)
 
 MEBA_LIB(LIB_NAME jr2_bringup MEBA_SRC_FOLDER jr2
-         MEBA_DEFINES           MEBA_HAS_MEPA_VTSS
-         STATIC_DEPENDENCIES    mepa_vtss_static
-         DYNAMIC_DEPENDENCIES   mepa_vtss)
+         STATIC_DEPENDENCIES    mepa_jr2_bringup)
 
 MEBA_LIB(LIB_NAME servalt MEBA_SRC_FOLDER servalt
-         MEBA_DEFINES           MEBA_HAS_MEPA_VTSS
-         STATIC_DEPENDENCIES    mepa_vtss_static
-         DYNAMIC_DEPENDENCIES   mepa_vtss)
+         STATIC_DEPENDENCIES    mepa_servalt)
 
 MEBA_LIB(LIB_NAME ocelot MEBA_SRC_FOLDER ocelot
-         MEBA_DEFINES           MEBA_HAS_MEPA_VTSS   MEBA_HAS_MEPA_LAN8814
-         STATIC_DEPENDENCIES    mepa_vtss_static     mepa_lan8814_static
-         DYNAMIC_DEPENDENCIES   mepa_vtss            mepa_lan8814)
+         STATIC_DEPENDENCIES    mepa_ocelot)
 
 MEBA_LIB(LIB_NAME ocelot_pcb121 MEBA_SRC_FOLDER ocelot_pcb121
-         MEBA_DEFINES           MEBA_HAS_MEPA_VTSS
-         STATIC_DEPENDENCIES    mepa_vtss_static
-         DYNAMIC_DEPENDENCIES   mepa_vtss)
+         STATIC_DEPENDENCIES    mepa_ocelot_pcb121)
 
 MEBA_LIB(LIB_NAME sparx5 MEBA_SRC_FOLDER sparx5
-         MEBA_DEFINES           MEBA_HAS_MEPA_VTSS   MEBA_HAS_MEPA_AQR   MEBA_HAS_MEPA_INTEL   MEBA_HAS_MEPA_LAN8814
-         STATIC_DEPENDENCIES    mepa_vtss_static     mepa_aqr_static     mepa_intel_static     mepa_lan8814_static
-         DYNAMIC_DEPENDENCIES   mepa_vtss            mepa_aqr            mepa_intel            mepa_lan8814)
+         STATIC_DEPENDENCIES    mepa_sparx5)
+
+MEBA_LIB(LIB_NAME sparx5_macsec MEBA_SRC_FOLDER sparx5
+         STATIC_DEPENDENCIES    mepa_sparx5_macsec)
+
 
 MEBA_LIB(LIB_NAME sparx5_bringup MEBA_SRC_FOLDER sparx5
-         MEBA_DEFINES           MEBA_HAS_MEPA_VTSS
-         STATIC_DEPENDENCIES    mepa_vtss_static
-         DYNAMIC_DEPENDENCIES   mepa_vtss)
+         STATIC_DEPENDENCIES    mepa_sparx5_bringup)
 
 MEBA_LIB(LIB_NAME lan966x MEBA_SRC_FOLDER lan966x
-         MEBA_DEFINES           MEBA_HAS_MEPA_VTSS   MEBA_HAS_MEPA_KSZ9031  MEBA_HAS_MEPA_LAN8814
-         STATIC_DEPENDENCIES    mepa_vtss_static     mepa_ksz9031_static    mepa_lan8814_static
-         DYNAMIC_DEPENDENCIES   mepa_vtss            mepa_ksz9031           mepa_lan8814)
-
-file(GLOB_RECURSE MEBA_HDRS "include/**.h")
-doxygen_target(TARGET meba NAME "MEBA" FILES ${MEBA_HDRS} INCLUDES -I${CMAKE_CURRENT_SOURCE_DIR}/include)
+         STATIC_DEPENDENCIES    mepa_lan966x)
 

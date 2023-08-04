@@ -66,6 +66,9 @@ typedef struct {
     uint16_t lp_bp0;
     uint16_t lp_bp1;
     uint16_t lp_bp2;
+    uint16_t lp_np0;
+    uint16_t lp_np1;
+    uint16_t lp_np2;
     uint32_t port;
 } kr_irq_t;
 
@@ -85,6 +88,9 @@ typedef struct {
     uint16_t irq_hist_index;
     kr_irq_t irq_glb_hist[KR_HIST_NUM];
     uint16_t irq_glb_hist_index;
+    mesa_port_speed_t speed;
+    mesa_bool_t rfec;
+    mesa_bool_t rsfec;
 } kr_appl_train_t;
 
 typedef struct {
@@ -100,6 +106,7 @@ typedef struct {
     uint32_t aneg_sm_state;
     uint32_t aneg_sm_deb;
     mesa_bool_t debug_ena;
+    mesa_bool_t no_eq_apply;
     mesa_bool_t aneg_enable;
     mesa_bool_t tr_done;
     mesa_bool_t pd;
@@ -107,6 +114,9 @@ typedef struct {
     uint32_t pollcnt;
     uint32_t conf_pollcnt;
     mesa_bool_t compl_ack_done;
+    mesa_bool_t global_stop;
+    mesa_bool_t mesa_kr_an_good;
+    mesa_bool_t link_break;
 } kr_appl_conf_t;
 
 #endif /* _MSCC_APPL_PORT_H_ */

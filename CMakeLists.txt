@@ -1,9 +1,9 @@
 # Copyright (c) 2004-2020 Microchip Technology Inc. and its subsidiaries.
 # SPDX-License-Identifier: MIT
 
-project(vtss_api)
-
 cmake_minimum_required(VERSION 2.8.12)
+
+project(vtss_api)
 
 include(CMakeParseArguments)
 include(.cmake/common.cmake)
@@ -15,18 +15,38 @@ option(BUILD_MESA_ALL    "Build the MESA libraries" OFF)
 option(BUILD_DOXYGEN     "Build doxygen" OFF)
 option(MESA_PRE_AG       "Use pre-generated mesa-ag layer if exist" ON)
 option(BUILD_MESA_DEMO   "Build the MESA demo" ON)
+option(MESA_OPSYS_LINUX  "Build the MESA for Linux" ON)
+option(MESA_OPSYS_LMSTAX "Build the MESA for LMStaX" OFF)
+option(MESA_WRAP         "Generate and build the MESA Wrapper" ON)
 
 mark_as_advanced(BUILD_MESA_DEMO MESA_PRE_AG BUILD_DOXYGEN)
 
 include(.cmake/doxygen.cmake)
+
+add_subdirectory(mepa)
 
 include_directories(me/include)
 include_directories(mesa/include)
 include_directories(meba/include)
 include_directories(mepa/include)
 
-add_subdirectory(meba)
-add_subdirectory(mepa)
+set (OS_CNT 0)
+if (${MESA_OPSYS_LINUX})
+    MATH(EXPR OS_CNT "${OS_CNT} + 1")
+endif ()
+
+if (${MESA_OPSYS_LMSTAX})
+    MATH(EXPR OS_CNT "${OS_CNT} + 1")
+endif ()
+
+if (NOT ${OS_CNT} EQUAL 1)
+    message(FATAL_ERROR "Enable one and only one OS layer")
+endif ()
+
+# MEBA is only supported on Linux
+if (${MESA_OPSYS_LINUX})
+    add_subdirectory(meba)
+endif ()
 
 #find_program(CCACHE_FOUND ccache)
 #if(CCACHE_FOUND)
@@ -37,29 +57,35 @@ add_subdirectory(mepa)
 INCLUDE (CheckIncludeFiles)
 INCLUDE (CheckCSourceCompiles)
 
-CHECK_INCLUDE_FILES("endian.h" VTSS_HAS_ENDIAN_H)
-IF(NOT VTSS_HAS_ENDIAN_H)
-    message(FATAL_ERROR "endian.h was not found or did not compile. See CMakeFiles/CMakeError.log for more details.")
-ENDIF()
+if (${MESA_OPSYS_LINUX})
+    CHECK_INCLUDE_FILES("endian.h" VTSS_HAS_ENDIAN_H)
+    IF(NOT VTSS_HAS_ENDIAN_H)
+        message(FATAL_ERROR "endian.h was not found or did not compile. See CMakeFiles/CMakeError.log for more details.")
+    ENDIF()
 
-CHECK_INCLUDE_FILES("asm/byteorder.h" VTSS_HAS_ASM_BYTEORDER_H)
-IF(NOT VTSS_HAS_ASM_BYTEORDER_H)
-    message(FATAL_ERROR "asm/byteorder.h was not found or did not compile. See CMakeFiles/CMakeError.log for more details.")
-ENDIF()
+    CHECK_INCLUDE_FILES("asm/byteorder.h" VTSS_HAS_ASM_BYTEORDER_H)
+    IF(NOT VTSS_HAS_ASM_BYTEORDER_H)
+        message(FATAL_ERROR "asm/byteorder.h was not found or did not compile. See CMakeFiles/CMakeError.log for more details.")
+    ENDIF()
+endif ()
 
 file(GLOB_RECURSE API_UNI_SRC  RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "base/*.c")
 file(GLOB_RECURSE API_UNI_HDR  RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/include" "include/**.h")
 file(GLOB_RECURSE API_UNI_HDR_ABS "include/**.h")
 
-file(GLOB_RECURSE API_MESA_SRC RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "mesa/src/**.c")
-file(GLOB_RECURSE API_MESA_HDR RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/mesa/include" "mesa/include/**.h")
-file(GLOB_RECURSE API_MEBA_HDR RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/meba/include" "meba/include/**.h")
+if (${MESA_WRAP})
+    file(GLOB_RECURSE API_MESA_SRC RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "mesa/src/**.c")
+    file(GLOB_RECURSE API_MESA_HDR RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/mesa/include" "mesa/include/**.h")
+    file(GLOB_RECURSE API_MEBA_HDR RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/meba/include" "meba/include/**.h")
+endif ()
 file(GLOB_RECURSE API_MEPA_HDR RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/mepa/include" "mepa/include/**.h")
+file(GLOB_RECURSE API_MEPA_VTSS_HDR RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/mepa/vtss/include" "mepa/vtss/include/*.h")
 file(GLOB_RECURSE API_ME_HDR RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/me/include" "me/include/**.h")
 
 list(REMOVE_ITEM API_MESA_SRC mesa/src/capability_dumper.c)
 
 ### MESA-PROCESSING START #####################################################################################################################################
+if (${MESA_WRAP})
 if (EXISTS mesa/ag/mesa.c AND EXISTS mesa/ag/mesa.h AND ${MESA_PRE_AG})
 
 message(STATUS "Using pre-generated mesa-ag layer")
@@ -71,6 +97,9 @@ else()
 
 set(API_MESA_CACHE_IN)
 set(API_MESA_CACHE_OUT)
+
+set(API_ME_CACHE_IN)
+list(APPEND API_ME_CACHE_IN me/include/microchip/ethernet/common.h)
 
 # List of header files to exclude from the mesa-hdr processing
 set(MESA_CACHE_DENY_LIST include/vtss_os_linux.h
@@ -97,10 +126,6 @@ macro(MESA_CACHE)
 endmacro(MESA_CACHE)
 
 FOREACH(f ${API_UNI_HDR})
-    # Install all public headers except for options.h, which will be processed later
-    if (NOT (${f} STREQUAL "vtss/api/options.h"))
-        configure_file("include/${f}" "${CMAKE_CURRENT_BINARY_DIR}/include_common/${f}" COPYONLY)
-    endif()
     # Add header to mesa processing
     MESA_CACHE("include/${f}")
 ENDFOREACH()
@@ -121,6 +146,10 @@ FOREACH(f ${API_MEPA_HDR})
     configure_file("mepa/include/${f}" "${CMAKE_CURRENT_BINARY_DIR}/include_common/${f}" COPYONLY)
 ENDFOREACH()
 
+FOREACH(f ${API_MEPA_VTSS_HDR})
+    configure_file("mepa/vtss/include/${f}" "${CMAKE_CURRENT_BINARY_DIR}/include_common/${f}" COPYONLY)
+ENDFOREACH()
+
 FOREACH(f ${API_ME_HDR})
     # Add all me headers
     configure_file("me/include/${f}" "${CMAKE_CURRENT_BINARY_DIR}/include_common/${f}" COPYONLY)
@@ -131,7 +160,7 @@ add_custom_target(mesa_cache DEPENDS ${API_MESA_CACHE_OUT})
 
 # Create the auto generated mesa header/src (using the earlier created cache).
 add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/mesa-ag/mesa.h ${CMAKE_CURRENT_BINARY_DIR}/mesa-ag/mesa.c
-                   COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/mesa/scripts/ag.rb -b ${CMAKE_CURRENT_SOURCE_DIR} -o ${CMAKE_CURRENT_BINARY_DIR}/mesa-ag ${API_MESA_CACHE_IN}
+                   COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/mesa/scripts/ag.rb -b ${CMAKE_CURRENT_SOURCE_DIR} -o ${CMAKE_CURRENT_BINARY_DIR}/mesa-ag ${API_MESA_CACHE_IN} ${API_ME_CACHE_IN}
                    DEPENDS mesa_cache ${CMAKE_CURRENT_SOURCE_DIR}/mesa/scripts/ag.rb
                    COMMENT "Generate mesa.h/mesa.c")
 add_custom_target(mesa_src DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/mesa-ag/mesa.h ${CMAKE_CURRENT_BINARY_DIR}/mesa-ag/mesa.c)
@@ -140,6 +169,7 @@ list(APPEND API_MESA_SRC ${CMAKE_CURRENT_BINARY_DIR}/mesa-ag/mesa.h)
 include_directories(${CMAKE_CURRENT_BINARY_DIR}/mesa-ag/)
 ### MESA-PROCESSING END #######################################################################################################################################
 endif()
+endif()
 
 include_directories(include)
 
@@ -147,7 +177,11 @@ include_directories(include)
 
 set(LIST_OF_API_TARGETS)
 
-set(GLOBAL_DEFS -DVTSS_OPSYS_LINUX -DVTSS_OPT_SYMREG=1)
+if (${MESA_OPSYS_LINUX})
+    set(GLOBAL_DEFS -DVTSS_OPSYS_LINUX -DVTSS_OPT_SYMREG=1)
+elseif (${MESA_OPSYS_LMSTAX})
+    set(GLOBAL_DEFS -DVTSS_OPSYS_LMSTAX -DVTSS_OPT_SYMREG=0)
+endif ()
 
 macro(API_TARGET)
   set(oneValueArgs LIB CHIP)
@@ -198,11 +232,6 @@ macro(API_TARGET)
       COMMENT "Preprocessing options.h for ${A_LIB}"
   )
 
-  if (${A_LIB})
-      add_custom_target(options_${A_LIB} ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/include_${A_LIB}/vtss/api/options.h")
-      doxygen_target(TARGET ${A_LIB} NAME "Microsemi API for ${A_LIB}" DEFINES ${DEFS} FILES ${API_UNI_HDR_ABS} INCLUDES -I${CMAKE_CURRENT_SOURCE_DIR}/include)
-  endif()
-
   list(APPEND LIST_OF_API_TARGETS ${A_LIB})
 endmacro(API_TARGET)
 
@@ -219,18 +248,18 @@ API_TARGET(LIB vsc7430               CHIP SERVAL_TE)
 API_TARGET(LIB vsc7435               CHIP SERVAL_TEP)
 API_TARGET(LIB vsc7436               CHIP SERVAL_2_LITE DEFS -DVTSS_OPT_PORT_COUNT=9)
 API_TARGET(LIB vsc7437               CHIP SERVAL_TE10)
-API_TARGET(LIB vsc7438               CHIP SERVAL_2      DEFS -DVTSS_OPT_PHY_TIMESTAMP=1)
+API_TARGET(LIB vsc7438               CHIP SERVAL_2)
 API_TARGET(LIB vsc7440               CHIP SPARX_IV_34   DEFS -DVTSS_OPT_PORT_COUNT=9)
 API_TARGET(LIB vsc7442               CHIP SPARX_IV_52)
 API_TARGET(LIB vsc7444               CHIP SPARX_IV_44)
 API_TARGET(LIB vsc7448               CHIP SPARX_IV_80   DEFS -DVTSS_OPT_PORT_COUNT=51)
 API_TARGET(LIB vsc7449               CHIP SPARX_IV_90)
 API_TARGET(LIB vsc7464               CHIP LYNX_2)
-API_TARGET(LIB vsc7468               CHIP JAGUAR_2      DEFS -DVTSS_OPT_PORT_COUNT=51 -DVTSS_OPT_PHY_TIMESTAMP=1 -DVTSS_OPT_PHY_MACSEC=1)
+API_TARGET(LIB vsc7468               CHIP JAGUAR_2      DEFS -DVTSS_OPT_PORT_COUNT=51)
 API_TARGET(LIB vsc7511               CHIP 7511          DEFS -DVTSS_OPT_PORT_COUNT=8)
 API_TARGET(LIB vsc7512               CHIP 7512)
-API_TARGET(LIB vsc7513               CHIP 7513          DEFS -DVTSS_OPT_AFI_OPTIMIZE_FOR_TIMERS=1 -DVTSS_OPT_PHY_TIMESTAMP=1)
-API_TARGET(LIB vsc7514               CHIP 7514          DEFS -DVTSS_OPT_AFI_OPTIMIZE_FOR_TIMERS=1 -DVTSS_OPT_PHY_TIMESTAMP=1)
+API_TARGET(LIB vsc7513               CHIP 7513          DEFS -DVTSS_OPT_AFI_OPTIMIZE_FOR_TIMERS=1)
+API_TARGET(LIB vsc7514               CHIP 7514          DEFS -DVTSS_OPT_AFI_OPTIMIZE_FOR_TIMERS=1)
 API_TARGET(LIB vsc7546               CHIP 7546          DEFS -DVTSS_OPT_PORT_COUNT=29)
 API_TARGET(LIB vsc7549               CHIP 7549          DEFS -DVTSS_OPT_PORT_COUNT=53)
 API_TARGET(LIB vsc7552               CHIP 7552          DEFS -DVTSS_OPT_PORT_COUNT=57)
@@ -241,8 +270,9 @@ API_TARGET(LIB vsc7549TSN            CHIP 7549TSN       DEFS -DVTSS_OPT_PORT_COU
 API_TARGET(LIB vsc7552TSN            CHIP 7552TSN       DEFS -DVTSS_OPT_PORT_COUNT=57)
 API_TARGET(LIB vsc7556TSN            CHIP 7556TSN       DEFS -DVTSS_OPT_PORT_COUNT=57)
 API_TARGET(LIB vsc7558TSN            CHIP 7558TSN       DEFS -DVTSS_OPT_PORT_COUNT=57)
+API_TARGET(LIB vsc7558MSEC           CHIP 7558TSN       DEFS -DVTSS_OPT_PORT_COUNT=57)
 API_TARGET(LIB lan966x               CHIP 966X)
-API_TARGET(LIB lan966x_sr            CHIP 966X          DEFS -DVTSS_OPT_FPGA=1)
+API_TARGET(LIB lan966x_lm            CHIP 966X          DEFS -DVTSS_OPT_LIGHT=1 -DVTSS_OPT_TRACE=1 -DVTSS_OPT_DEBUG_PRINT=1)
 API_TARGET(LIB lan966x_ad            CHIP 966X          DEFS -DVTSS_OPT_FPGA=2)
 
 option(BUILD_MESA_CAPABILITY_DUMPER "Build all the mesa capability dumper function" OFF)

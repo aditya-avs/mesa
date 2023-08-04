@@ -36,21 +36,21 @@ static char *srvl_afi_chip_port_to_str(vtss_state_t *vtss_state, vtss_phys_port_
     switch (chip_port) {
     case (vtss_phys_port_no_t)-1:
        // Special case just to get the print function print something special
-       strcpy(buf, "SHARED");
+       VTSS_STRCPY(buf, "SHARED");
        break;
 
     case VTSS_CHIP_PORT_CPU:
-       strcpy(buf, "CPU");
+       VTSS_STRCPY(buf, "CPU");
        break;
 
     default:
         port_no = vtss_cmn_chip_to_logical_port(vtss_state, vtss_state->chip_no, chip_port);
         if (port_no != VTSS_PORT_NO_NONE) {
-            sprintf(buf, "%u", port_no);
+            VTSS_SPRINTF(buf, "%u", port_no);
         } else {
             // Port is not in port map. Odd.
             VTSS_E("chip_port = %u not in port map", chip_port);
-            strcpy(buf, "N/A");
+            VTSS_STRCPY(buf, "N/A");
         }
 
         break;
@@ -704,12 +704,10 @@ static vtss_rc srvl_packet_ns_to_ts_cnt(vtss_state_t  *vtss_state,
     return VTSS_RC_OK;
 }
 
-#if defined(VTSS_OPT_PHY_TIMESTAMP)
 static u32 srvl_packet_unpack32(const u8 *buf)
 {
     return (buf[0]<<24) + (buf[1]<<16) + (buf[2]<<8) + buf[3];
 }
-#endif
 
 static vtss_rc srvl_ptp_get_timestamp(vtss_state_t                    *vtss_state,
                                       const u8                        *const frm,
@@ -722,7 +720,6 @@ static vtss_rc srvl_ptp_get_timestamp(vtss_state_t                    *vtss_stat
     vtss_ts_id_t ts_id;
     *rxTime = rx_info->hw_tstamp;
     *timestamp_ok = rx_info->hw_tstamp_decoded;
-#if defined(VTSS_OPT_PHY_TIMESTAMP)
     if (ts_props.ts_feature_is_PTS || ts_props.backplane_port) {
         u32 packet_ns;
         packet_ns = srvl_packet_unpack32(frm);
@@ -735,7 +732,6 @@ static vtss_rc srvl_ptp_get_timestamp(vtss_state_t                    *vtss_stat
             VTSS_I("PHY timestamp mode %d not supported", ts_props.phy_ts_mode);
         }
     }
-#endif // VTSS_OPT_PHY_TIMESTAMP
     VTSS_D("Raw timestamp %" PRIu64 ", hw_tstamp_decoded %u", *rxTime, *timestamp_ok);
     ts_id.ts_id = rx_info->tstamp_id;
     if (rx_info->tstamp_id_decoded) {
@@ -1147,7 +1143,7 @@ static vtss_rc srvl_rx_hdr_decode(const vtss_state_t          *const state,
                  ((u64)xtr_hdr[offset + 4] << 24) | ((u64)xtr_hdr[offset + 5] << 16) | ((u64)xtr_hdr[offset + 6] <<  8) | ((u64)xtr_hdr[offset + 7] <<  0);
     }
 
-    memset(info, 0, sizeof(*info));
+    VTSS_MEMSET(info, 0, sizeof(*info));
 
     info->length    = meta->length;
 
@@ -1227,9 +1223,10 @@ static vtss_rc srvl_rx_frame(struct vtss_state_s  *vtss_state,
         VTSS_RC(srvl_rx_frame_get_internal(vtss_state, grp, ifh, data, buflen, &length));
 
         /* IFH is done separately because of alignment needs */
-        memcpy(xtr_hdr, ifh, sizeof(ifh));
-        memset(&meta, 0, sizeof(meta));
+        VTSS_MEMCPY(xtr_hdr, ifh, sizeof(ifh));
+        VTSS_MEMSET(&meta, 0, sizeof(meta));
         meta.length = (length - 4);
+        meta.etype = (data[12] << 8) | data[13];
         rc = srvl_rx_hdr_decode(vtss_state, &meta, xtr_hdr, rx_info);
     }
     return rc;
@@ -1436,7 +1433,7 @@ static vtss_rc srvl_tx_hdr_encode(      vtss_state_t          *const state,
         }
 
         if (info->cos >= 8) {
-            // Inject super priority by setting ACL_HIT (IFH[31]) to 0 (done by memset() above) and ACL_ID[4] (IFH[41]) to 1
+            // Inject super priority by setting ACL_HIT (IFH[31]) to 0 (done by VTSS_MEMSET() above) and ACL_ID[4] (IFH[41]) to 1
             inj_hdr[1] |= VTSS_ENCODE_BITFIELD64(1, 41, 1); // acl_id[4].
         }
 
@@ -1490,7 +1487,7 @@ static vtss_rc srvl_debug_pkt(vtss_state_t *vtss_state,
 
     /* Analyzer CPU forwarding registers */
     for (port = 0; port <= VTSS_CHIP_PORTS; port++) {
-        sprintf(buf, "Port %u", port);
+        VTSS_SPRINTF(buf, "Port %u", port);
         vtss_srvl_debug_reg_header(pr, buf);
         SRVL_DEBUG_CPU_FWD(pr, CFG(port), port, "CFG");
         SRVL_DEBUG_CPU_FWD(pr, BPDU_CFG(port), port, "BPDU_CFG");
